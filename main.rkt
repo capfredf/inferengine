@@ -102,9 +102,54 @@
                                           acc))))))
   (remove-duplicates facts))
 
+(define (non-subset-rel kb)
+  (define r (remove-duplicates (append
+                                (for/list ([entry (in-list kb)]
+                                           #:unless (kb-entry-res kb))
+                                  (a-rel (kb-entry-c1 entry) (kb-entry-c2 entry)))
+                                
+                                (for/list ([entry (in-list kb)]
+                                           #:unless (kb-entry-res kb))
+                                  (a-rel (opp (kb-entry-c2 entry)) (opp (kb-entry-c1 entry))))
+                                
+                                (for/list ([entry (in-list kb)]
+                                           #:when (klass? (kb-entry-c1 entry)))
+                                  (a-rel (kb-entry-c1 entry) (opp (kb-entry-c1 entry))))
+                                
+                                (for/list ([entry (in-list kb)]
+                                           #:when (klass? (kb-entry-c2 entry)))
+                                  (a-rel (kb-entry-c2 entry) (opp (kb-entry-c2 entry))))
+                                
+                                (for/list ([entry (in-list kb)]
+                                           #:when (oppklass? (kb-entry-c2 entry)))
+                                  (a-rel (opp (kb-entry-c2 entry)) (kb-entry-c2 entry))))))
+  (define s (for/list ([r (in-list (subset-rel kb))])
+              (a-rel (a-rel-b r) (a-rel-a r))))
+  ((r-compose s r) s))
 
 (define (supersets kls kb)
   (r-section kls (subset-rel kb)))
+
+(define (non-supser-sets kls kb)
+  (r-section kls (non-subset-rel kb)))
+
+
+(define (derive kb stmt)
+  (match stmt
+    [(are-all-stmt as bs) (member bs (supersets as kb))]
+    [(are-no-stmt as bs) (member (opp bs) (supersets as kb))]
+    [(are-any-stmt as bs) (member (opp bs) (supersets as kb))]
+    [(any-not-stmt as bs) (member bs (supersets as kb))]))
+
+(define (fact->stmt kls1 kls2 res)
+  (match (list kls2 res)
+    [(list (? klass? kls) #t) (all-stmt kls1 kls2)]
+    [(list (oppklass name) #t) (no-stmt kls1 (klass name))]
+    [(list (oppklass name) #f) (some-stmt kls1 (klass name))]
+    [(list (klass name) #f) (some-not-stmt kls1 (klass name))]))
+
+(define (tell-about kb kls)
+  (void))
 
 (module+ test
     (require rackunit)
