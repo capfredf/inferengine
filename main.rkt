@@ -78,13 +78,25 @@
   (if (member c2 (supersets c1 kb)) false
       (cons (kb-entry c1 c2 #t) kb)))
 
+(define (parse s tof)
+  (match (string-split s " ")
+    [(list "All" n1 "are" n2) (tof (klass n1) (klass n2))]))
+
 (module+ test
     (require rackunit)
     (check-equal? (r-compose (list (a-rel 10 20) (a-rel 20 30)) (list (a-rel 20 30)))
                   (list (a-rel 10 30)))
     (check-equal? (rtc (list 1 2) (list (a-rel 2 1)))
                   (list (a-rel 1 1) (a-rel 2 2) (a-rel 2 1)))
-    (define kb1 (list (kb-entry (klass "boys") (klass "sharp") #t)
-                      (kb-entry (klass "groupA") (klass "boys") #t)))
-    (define groupA-are-sharp (all-stmt (klass "groupA") (klass "sharp")))
-    (check-not-false (derive kb1 groupA-are-sharp)))
+    ;; smoke test
+    ;; All girls are American
+    ;; All students are girls
+    ;; ------------------------- Barbara
+    ;; All students are American
+    (define fact->premise (lambda (s)
+                            (parse s (lambda (a b) (kb-entry a b #t)))))
+    
+    (define kb1 (list (fact->premise "All girls are American")
+                      (fact->premise "All students are girls")))
+    (define conclusion (parse "All girls are American" all-stmt))
+    (check-not-false (derive kb1 conclusion)))
