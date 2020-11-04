@@ -8,7 +8,7 @@
     (a-rel-b p)))
 
 (define (r-compose rel1 rel2)
-  (remove-duplicates (for/list ([p1 rel1]
+  (remove-duplicates (for*/list ([p1 rel1]
                                 [p2 rel2]
                                 #:when (equal? (a-rel-b p1) (a-rel-a p2)))
                        (a-rel (a-rel-a p1) (a-rel-b p2)))))
@@ -38,8 +38,6 @@
     [(klass name) (oppklass name)]
     [(oppklass name) (klass name)]))
 
-;;(printf "~a" (klass "hello"))
-;;(printf "~a" (oppklass "hello"))
 
 ;; KB-Entry : states if c1 is included in c2
 (struct kb-entry (c1 c2 res) #:transparent)
@@ -51,109 +49,42 @@
 (struct statement (c1 c2) #:transparent)
 (struct all-stmt statement ()
   #:methods gen:custom-write [(define write-proc (make-printer "All" "are" "."))])
-(struct no-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "No" "are" "."))])
-(struct some-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "Some" "are" "."))])
-(struct some-not-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "Some" "are not" "."))])
-(struct are-all-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "Are all" "" "?"))])
-(struct are-no-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "Are no" "" "?"))])
-(struct are-any-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "Are any" "" "?"))])
-(struct any-not-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "Are any" "not" "?"))])
-(struct what-stmt statement ()
-  #:methods gen:custom-write [(define write-proc (make-printer "What about" "" "?"))])
 
-
-(define (isQuery stmt)
-  (cond
-    [(ormap (λ (f) (f stmt)) (list are-all-stmt? are-no-stmt? are-any-stmt? any-not-stmt? what-stmt?)) #t]
-    [else false]))
-
-(define (neg stmt)
-  (match stmt
-    [(are-all-stmt c1 c2) (any-not-stmt c1 c2)]
-    [(are-no-stmt c1 c2) (are-any-stmt c1 c2)]
-    [(are-any-stmt c1 c2) (are-no-stmt c1 c2)]
-    [(any-not-stmt c1 c2) (are-all-stmt c1 c2)]))
 
 (define (subset-rel kb)
-  (define r (append
-             (for/list ([entry (in-list kb)]
-                        #:when (kb-entry-res kb))
-               (a-rel (kb-entry-c1 entry) (kb-entry-c2 entry)))
-             
-             (for/list ([entry (in-list kb)]
-                        #:when (kb-entry-res kb))
-               (a-rel (opp (kb-entry-c1 entry)) (opp (kb-entry-c2 entry))))))
+  (define r (for/list ([entry (in-list kb)]
+                       #:when (kb-entry-res entry))
+              (a-rel (kb-entry-c1 entry) (kb-entry-c2 entry))))
   (rtc (domain kb) r))
 
 (define (domain kb)
   (define facts (for/fold ([acc null])
                           ([entry (in-list kb)])
                   (cons (kb-entry-c1 entry)
-                        (cons (opp (kb-entry-c1 entry))
-                              (cons (kb-entry-c2 entry)
-                                    (cons (opp (kb-entry-c2 entry))
-                                          acc))))))
+                        (cons (kb-entry-c2 entry)
+                              acc))))
   (remove-duplicates facts))
-
-(define (non-subset-rel kb)
-  (define r (remove-duplicates (append
-                                (for/list ([entry (in-list kb)]
-                                           #:unless (kb-entry-res kb))
-                                  (a-rel (kb-entry-c1 entry) (kb-entry-c2 entry)))
-                                
-                                (for/list ([entry (in-list kb)]
-                                           #:unless (kb-entry-res kb))
-                                  (a-rel (opp (kb-entry-c2 entry)) (opp (kb-entry-c1 entry))))
-                                
-                                (for/list ([entry (in-list kb)]
-                                           #:when (klass? (kb-entry-c1 entry)))
-                                  (a-rel (kb-entry-c1 entry) (opp (kb-entry-c1 entry))))
-                                
-                                (for/list ([entry (in-list kb)]
-                                           #:when (klass? (kb-entry-c2 entry)))
-                                  (a-rel (kb-entry-c2 entry) (opp (kb-entry-c2 entry))))
-                                
-                                (for/list ([entry (in-list kb)]
-                                           #:when (oppklass? (kb-entry-c2 entry)))
-                                  (a-rel (opp (kb-entry-c2 entry)) (kb-entry-c2 entry))))))
-  (define s (for/list ([r (in-list (subset-rel kb))])
-              (a-rel (a-rel-b r) (a-rel-a r))))
-  ((r-compose s r) s))
 
 (define (supersets kls kb)
   (r-section kls (subset-rel kb)))
 
-(define (non-supser-sets kls kb)
-  (r-section kls (non-subset-rel kb)))
-
 
 (define (derive kb stmt)
   (match stmt
-    [(are-all-stmt as bs) (member bs (supersets as kb))]
-    [(are-no-stmt as bs) (member (opp bs) (supersets as kb))]
-    [(are-any-stmt as bs) (member (opp bs) (supersets as kb))]
-    [(any-not-stmt as bs) (member bs (supersets as kb))]))
+    [(all-stmt as bs) (member bs (supersets as kb))]))
 
-(define (fact->stmt kls1 kls2 res)
-  (match (list kls2 res)
-    [(list (? klass? kls) #t) (all-stmt kls1 kls2)]
-    [(list (oppklass name) #t) (no-stmt kls1 (klass name))]
-    [(list (oppklass name) #f) (some-stmt kls1 (klass name))]
-    [(list (klass name) #f) (some-not-stmt kls1 (klass name))]))
-
-(define (tell-about kb kls)
-  (void))
+(define (update-kb stmt kb)
+  (match-define (statement c1 c2) stmt)
+  (if (member c2 (supersets c1 kb)) false
+      (cons (kb-entry c1 c2 #t) kb)))
 
 (module+ test
     (require rackunit)
     (check-equal? (r-compose (list (a-rel 10 20) (a-rel 20 30)) (list (a-rel 20 30)))
                   (list (a-rel 10 30)))
     (check-equal? (rtc (list 1 2) (list (a-rel 2 1)))
-                  (list (a-rel 1 1) (a-rel 2 2) (a-rel 2 1))))
+                  (list (a-rel 1 1) (a-rel 2 2) (a-rel 2 1)))
+    (define kb1 (list (kb-entry (klass "boys") (klass "sharp") #t)
+                      (kb-entry (klass "groupA") (klass "boys") #t)))
+    (define groupA-are-sharp (all-stmt (klass "groupA") (klass "sharp")))
+    (check-not-false (derive kb1 groupA-are-sharp)))
