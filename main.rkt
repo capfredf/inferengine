@@ -28,15 +28,6 @@
   #:methods gen:custom-write [(define write-proc
                                 (λ (me port _)
                                   (fprintf port (klass-name me))))])
-(struct oppklass (name) #:transparent
-  #:methods gen:custom-write [(define write-proc
-                                (λ (me port _)
-                                  (fprintf port "non-~a"(oppklass-name me))))])
-
-(define (opp kls)
-  (match kls
-    [(klass name) (oppklass name)]
-    [(oppklass name) (klass name)]))
 
 
 ;; KB-Entry : states if c1 is included in c2
@@ -73,6 +64,7 @@
   (match stmt
     [(all-stmt as bs) (member bs (supersets as kb))]))
 
+#;
 (define (update-kb stmt kb)
   (match-define (statement c1 c2) stmt)
   (if (member c2 (supersets c1 kb)) false
@@ -97,6 +89,7 @@
                             (parse s (lambda (a b) (kb-entry a b #t)))))
     
     (define kb1 (list (fact->premise "All girls are American")
-                      (fact->premise "All students are girls")))
-    (define conclusion (parse "All girls are American" all-stmt))
+                      (fact->premise "All students are girls")
+                      (fact->premise "All c are students")))
+    (define conclusion (parse "All c are American" all-stmt))
     (check-not-false (derive kb1 conclusion)))
