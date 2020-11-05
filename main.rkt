@@ -29,43 +29,47 @@
     [(equal? (f x) x) x]
     [else (lfp f (f x))]))
 
-;; (struct klass (name) #:transparent
-;;   #:property prop:custom-write (λ (me port _)
-;;                                  (fprintf port (klass-name me))))
+(struct klass ([name : String])
+  #:transparent
+  #:property prop:custom-write (λ ([me : klass] [port : Output-Port] _)
+                                 (fprintf port "~a" (klass-name me))))
 
 ;; ;; KB-Entry : states if c1 is included in c2
-;; (struct kb-entry (c1 c2 res) #:transparent)
+(struct kb-entry ([c1 : klass] [c2 : klass] [res : Boolean]) #:transparent #:type-name KBEntry)
 
-;; (define (make-printer start mid end)
-;;   (lambda (me port mode)
-;;     (fprintf "~a ~a ~a ~a ~a" start (statement-c1 me) mid (statement-c2 me) end)))
+(struct all-stmt ([c1 : klass] [c2 : klass])
+  #:type-name AllStmt
+  #:transparent
+  #:property prop:custom-write
+  (lambda ([me : all-stmt] [port : Output-Port] _)
+    (fprintf port "All ~a are ~a." (all-stmt-c1 me) (all-stmt-c2 me))))
 
-;; (struct statement (c1 c2) #:transparent)
-;; (struct all-stmt statement ()
-;;   #:methods gen:custom-write [(define write-proc (make-printer "All" "are" "."))])
+(define-type Knowledge-Base (Listof KBEntry))
+(: subset-rel (-> Knowledge-Base (Rel klass)))
+(define (subset-rel kb)
+  (define r (for/list : (Rel klass) ([entry (in-list kb)]
+                                 #:when (kb-entry-res entry))
+              (a-rel (kb-entry-c1 entry) (kb-entry-c2 entry))))
+  (rtc (domain kb) r))
 
+(: domain (-> Knowledge-Base (Listof klass)))
+(define (domain kb)
+  (define facts (for/fold : (Listof klass )
+                    ([acc null])
+                    ([entry (in-list kb)])
+                  (cons (kb-entry-c1 entry)
+                        (cons (kb-entry-c2 entry)
+                              acc))))
+  (remove-duplicates facts))
 
-;; (define (subset-rel kb)
-;;   (define r (for/list ([entry (in-list kb)]
-;;                        #:when (kb-entry-res entry))
-;;               (a-rel (kb-entry-c1 entry) (kb-entry-c2 entry))))
-;;   (rtc (domain kb) r))
+(: supersets (-> klass Knowledge-Base (Listof klass)))
+ (define (supersets kls kb)
+   (r-section kls (subset-rel kb)))
 
-;; (define (domain kb)
-;;   (define facts (for/fold ([acc null])
-;;                           ([entry (in-list kb)])
-;;                   (cons (kb-entry-c1 entry)
-;;                         (cons (kb-entry-c2 entry)
-;;                               acc))))
-;;   (remove-duplicates facts))
-
-;; (define (supersets kls kb)
-;;   (r-section kls (subset-rel kb)))
-
-
-;; (define (derive kb stmt)
-;;   (match stmt
-;;     [(all-stmt as bs) (member bs (supersets as kb))]))
+(: derive (-> Knowledge-Base AllStmt (Option (Listof klass))))
+(define (derive kb stmt)
+  (match stmt
+    [(all-stmt as bs) (member bs (supersets as kb))]))
 
 ;; #;
 ;; (define (update-kb stmt kb)
@@ -73,9 +77,10 @@
 ;;   (if (member c2 (supersets c1 kb)) false
 ;;       (cons (kb-entry c1 c2 #t) kb)))
 
-;; (define (parse s tof)
-;;   (match (string-split s " ")
-;;     [(list "All" n1 "are" n2) (tof (klass n1) (klass n2))]))
+(: parse (All (X) (-> String (-> klass klass X) X)))
+(define (parse s tof)
+  (match (string-split s " ")
+    [(list "All" n1 "are" n2) (tof (klass n1) (klass n2))]))
 
 (module+ test
     (require typed/rackunit)
@@ -83,17 +88,17 @@
                   (list (a-rel 10 30)))
     (check-equal? (rtc (list 1 2) (list (a-rel 2 1)))
                   (list (a-rel 1 1) (a-rel 2 2) (a-rel 2 1)))
-;;     ;; smoke test
-;;     ;; All girls are American
-;;     ;; All students are girls
-;;     ;; ------------------------- Barbara
-;;     ;; All students are American
-;;     (define fact->premise (lambda (s)
-;;                             (parse s (lambda (a b) (kb-entry a b #t)))))
+    ;; smoke test
+    ;; All girls are American
+    ;; All students are girls
+    ;; ------------------------- Barbara
+    ;; All students are American
+    (define (fact->premise [s : String]) : KBEntry
+      (parse s (lambda ([a : klass] [b : klass]) (kb-entry a b #t))))
     
-;;     (define kb1 (list (fact->premise "All girls are American")
-;;                       (fact->premise "All students are girls")
-;;                       (fact->premise "All c are students")))
-    ;;     (define conclusion (parse "All c are American" all-stmt))
+    (define kb1 (list (fact->premise "All girls are American")
+                      (fact->premise "All students are girls")
+                      (fact->premise "All children are students")))
+        (define conclusion (parse "All c are American" all-stmt))
     #;
     (check-not-false (derive kb1 conclusion)))
