@@ -66,10 +66,35 @@
  (define (supersets kls kb)
    (r-section kls (subset-rel kb)))
 
-(: derive (-> Knowledge-Base AllStmt (Option (Listof klass))))
+(: derive (-> Knowledge-Base AllStmt Boolean))
 (define (derive kb stmt)
   (match stmt
-    [(all-stmt as bs) (member bs (supersets as kb))]))
+    [(all-stmt as bs)
+     (cond
+       [(member bs (supersets as kb)) #t]
+       [(interp (generate-counter-model kb) #f) #f])]))
+
+(define-type Model (HashTable String (Listof String)))
+
+
+(: generate-counter-model (-> Knowledge-Base Model))
+(define (generate-counter-model kb)
+  (define us (domain kb))
+  (for/hash : (HashTable String (Listof String))
+      ([i (in-list us)])
+    (values (klass-name i)
+            (for/list : (Listof String)
+                  ([j (in-list us)]
+                   #:when (member i (supersets j kb)))
+              (klass-name j)))))
+
+
+(: interp (-> Model (Option String) Void))
+(define (interp model maybe-term)
+  (unless maybe-term
+    (for ([(key ele) (in-hash model)])
+      (printf "[[~a]] : ~a~n" key ele))))
+
 
 ;; #;
 ;; (define (update-kb stmt kb)
@@ -95,10 +120,12 @@
     ;; All students are American
     (define (fact->premise [s : String]) : KBEntry
       (parse s (lambda ([a : klass] [b : klass]) (kb-entry a b #t))))
-    
+
     (define kb1 (list (fact->premise "All girls are American")
                       (fact->premise "All students are girls")
                       (fact->premise "All children are students")))
-        (define conclusion (parse "All c are American" all-stmt))
-    #;
-    (check-not-false (derive kb1 conclusion)))
+    (define conclusion (parse "All children are American" all-stmt))
+    (check-true (derive kb1 conclusion))
+    
+    (define conclusion2 (parse "All girls are children" all-stmt))
+    (check-false (derive kb1 conclusion2)))
