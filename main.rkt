@@ -113,46 +113,35 @@
         (loop acc*))))
 
 
-(: anti (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
-(define (anti r1 li-rel)
+(: down (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(define (down r1 li-rel)
   (define x (rel-a r1))
   (define y (rel-b r1))
-  (cond
-    [(null? li-rel) null]
-    [else
-     (define res (memf
-                  (lambda ([r : (Rel Term)]) : Boolean
-                          (define b (rel-b r))
-                          (and (tv-term? b) (equal? (tv-term-object b) y)))
-                  li-rel))
-     (cond
-       [(null? res) null]
-       [(and (list? res))
-        (define found (car res))
-        (define b (rel-b found))
-        (if (tv-term? b)
-            (cons (make-rel (rel-a found) (tv-term (tv-term-action b) x))
-                  (anti r1 (cdr res)))
-            (error 'anti "you are drunk"))]
-       [else null])]))
+  (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
+                      (define b (rel-b r))
+                      (cond
+                        [(and (tv-term? b) (equal? (tv-term-object b) y))
+                         (make-rel (rel-a r) (tv-term (tv-term-action b) x))]
+                        [else #f]))
+              li-rel))
 
-(: make-anti-from-rtc (-> (Listof (Rel Term)) (Listof (Rel Term))))
-(define (make-anti-from-rtc rtc)
+(: apply-down (-> (Listof (Rel Term)) (Listof (Rel Term))))
+(define (apply-down rtc)
   (define acc* (for/fold : (Listof (Rel Term))
                      ([acc rtc])
                      ([i (in-list rtc)])
-                 (remove-duplicates (append (anti i acc) acc))))
+                 (remove-duplicates (append (down i acc) acc))))
   (if (equal? acc* rtc) acc*
-      (make-anti-from-rtc acc*)))
+      (apply-down acc*)))
 
 
 (: derive2 (-> (Listof Term) RootTerm Boolean))
 (define (derive2 premises conclusion)
   (define rtc (make-rtc premises))
-  (define anti-rtc (make-anti-from-rtc rtc))
+  (define down-rtc (apply-down rtc))
   (define r (->rel conclusion))
   (cond
-    [(member r anti-rtc equal?) #t]
+    [(member r down-rtc equal?) #t]
     [else
      (print-model (make-counter-model premises))
      false]))
@@ -206,7 +195,7 @@
          [CATS (noun-term "cats")]
          [SEE-DOGS (tv-term 'see DOGS)]
          [SEE-PUPPIES (tv-term 'see PUPPIES)])
-    (check-equal? (anti (make-rel PUPPIES DOGS)
+    (check-equal? (down (make-rel PUPPIES DOGS)
                         (list (make-rel CATS SEE-DOGS)))
                   (list
                    (make-rel CATS SEE-PUPPIES))))
