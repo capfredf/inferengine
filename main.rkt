@@ -1,6 +1,12 @@
 #lang typed/racket
 
-(struct (A) rel ([a : A] [b : A]) #:transparent #:type-name Rel)
+(define-type RelKind Boolean)
+
+(struct (A) rel ([a : A] [b : A][kind : RelKind]) #:transparent #:type-name Rel)
+
+(: make-rel (All (A) (-> A A [#:rel-kind RelKind] (Rel A))))
+(define (make-rel a b #:rel-kind [rel-kind #f])
+  (rel a b rel-kind))
 
 (define-type Model (HashTable Term (Listof Integer)))
 
@@ -40,29 +46,31 @@
 
 
 
-(: parse2 (-> Any Term))
-(define (parse2 s)
+(: parse (-> Any Term))
+(define (parse s)
   (match s
+    [`(,v all ,p) #:when (eq? v 'see) (tv-term 'see (parse p))]
     [`,n #:when (symbol? n)
          (noun-term (symbol->string n))]))
 
 (define (parse-root [s : Any]) : RootTerm
   (match-define `(all ,p ,q) s)
-  (root-term (parse2 p) (parse2 q)))
+  (root-term (parse p) (parse q)))
 
 (: ->terms (-> Term (Listof Term)))
 (define (->terms t)
   (cond
     [(root-term? t) (append (list t) (->terms (root-term-p t)) (->terms (root-term-q t)))]
     [(noun-term? t) (list t)]
+    [(tv-term? t) (append (list t) (->terms (tv-term-object t)))]
     [(term? t) (error '->terms "you are drunk")]))
 
 
 (: ->rel (-> Term (rel Term)))
 (define (->rel t)
   (cond
-    [(noun-term? t) (rel t t)]
-    [(root-term? t) (rel (root-term-p t) (root-term-q t))]
+    [(noun-term? t) (make-rel t t)]
+    [(root-term? t) (make-rel (root-term-p t) (root-term-q t))]
     [else (error 'rc "you are drunk")]))
 
 (: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
@@ -85,7 +93,7 @@
      (cond
        [(null? res) null]
        [(list? res)
-        (cons (rel (rel-a x) (rel-b (car res)))
+        (cons (make-rel (rel-a x) (rel-b (car res)))
               (barbara x (cdr res)))]
        [else null])]))
 
@@ -107,7 +115,7 @@
 (: derive2 (-> (Listof Term) RootTerm Boolean))
 (define (derive2 premises conclusion)
   (define rtc (generate-rtc premises))
-  (define r (rel (root-term-p conclusion)
+  (define r (make-rel (root-term-p conclusion)
                    (root-term-q conclusion)))
   (cond
     [(member r rtc) #t]
@@ -143,26 +151,33 @@
 
 
 (module+ test
-    (require typed/rackunit)
-    (let* ([input (parse-root '(all ducks birds))]
-           [terms (->terms input)])
-      (check-equal? (length terms) 3))
+  (require typed/rackunit)
+  (check-equal? (parse '(see all ducks)) (tv-term 'see (noun-term "ducks")))
+  (check-equal? (parse '(see all (see all ducks))) (tv-term 'see (tv-term 'see (noun-term "ducks"))))
+  (let* ([raw-input '(all dogs (see all (see all ducks)))]
+         [rt (parse-root raw-input)])
+    (check-equal? rt (root-term (noun-term "dogs") (tv-term 'see (tv-term 'see (noun-term "ducks")))))
+    (check-equal? (length (->terms rt)) 5))
+  
+  (let* ([input (parse-root '(all ducks birds))]
+         [terms (->terms input)])
+    (check-equal? (length terms) 3))
 
-    (check-equal? (barbara (rel 1 2) (list (rel 1 1) (rel 2 2) (rel 2 3)))
-                  (list (rel 1 3)))
-    (check-equal? (barbara (rel 3 1) (list (rel 1 2) (rel 1 1) (rel 2 2) (rel 3 1) (rel 3 3) (rel 2 2)))
-                  (list (rel 3 2)))
+  (check-equal? (barbara (make-rel 1 2) (list (make-rel 1 1) (make-rel 2 2) (make-rel 2 3)))
+                (list (make-rel 1 3)))
+  (check-equal? (barbara (make-rel 3 1) (list (make-rel 1 2) (make-rel 1 1) (make-rel 2 2) (make-rel 3 1) (make-rel 3 3) (make-rel 2 2)))
+                (list (make-rel 3 2)))
 
-    (check-true (derive2 (append (->terms (parse-root '(all girls American)))
-                                 (->terms (parse-root '(all students girls))))
-                         (parse-root '(all students American))))
+  (check-true (derive2 (append (->terms (parse-root '(all girls American)))
+                               (->terms (parse-root '(all students girls))))
+                       (parse-root '(all students American))))
 
-    (check-true (derive2 (append (->terms (parse-root '(all girls American)))
-                                 (->terms (parse-root '(all students girls)))
-                                 (->terms (parse-root '(all children students))))
-                         (parse-root '(all children American))))
-    
-    (check-false (derive2 (append (->terms (parse-root '(all girls American)))
-                                  (->terms (parse-root '(all students girls)))
-                                  (->terms (parse-root '(all children students))))
-                          (parse-root '(all girls children)))))
+  (check-true (derive2 (append (->terms (parse-root '(all girls American)))
+                               (->terms (parse-root '(all students girls)))
+                               (->terms (parse-root '(all children students))))
+                       (parse-root '(all children American))))
+  
+  (check-false (derive2 (append (->terms (parse-root '(all girls American)))
+                                (->terms (parse-root '(all students girls)))
+                                (->terms (parse-root '(all children students))))
+                        (parse-root '(all girls children)))))
