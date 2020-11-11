@@ -71,6 +71,7 @@
   (cond
     [(noun-term? t) (make-rel t t)]
     [(root-term? t) (make-rel (root-term-p t) (root-term-q t))]
+    [(tv-term? t) (make-rel t t)]
     [else (error 'rc "you are drunk")]))
 
 (: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
@@ -180,4 +181,9 @@
   (check-false (derive2 (append (->terms (parse-root '(all girls American)))
                                 (->terms (parse-root '(all students girls)))
                                 (->terms (parse-root '(all children students))))
-                        (parse-root '(all girls children)))))
+                        (parse-root '(all girls children))))
+  (println "starting test verbs")
+  
+  (check-true (derive2 (append (->terms (parse-root '(all dogs (see all cats))))
+                               (->terms (parse-root '(all (see all cats) (see all hawks)))))
+                       (parse-root '(all dogs (see all hawks))))))
