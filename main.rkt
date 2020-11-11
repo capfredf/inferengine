@@ -3,26 +3,7 @@
 (struct (A) a-rel ([a : A] [b : A]) #:transparent)
 (define-type Rel (All (X) (Listof (a-rel X))))
 
-(define-type Model (HashTable String (Listof String)))
-
-;; (: generate-counter-model (-> Knowledge-Base Model))
-;; (define (generate-counter-model kb)
-;;   (define us (domain kb))
-;;   (for/hash : (HashTable String (Listof String))
-;;       ([i (in-list us)])
-;;     (values (klass-name i)
-;;             (for/list : (Listof String)
-;;                   ([j (in-list us)]
-;;                    #:when (member i (supersets j kb)))
-;;               (klass-name j)))))
-
-
-;; (: interp (-> Model (Option String) Void))
-;; (define (interp model maybe-term)
-;;   (unless maybe-term
-;;     (for ([(key ele) (in-hash model)])
-;;       (printf "[[~a]] : ~a~n" key ele))))
-
+(define-type Model (HashTable Term (Listof Integer)))
 
 (struct term () #:type-name Term #:transparent)
 
@@ -31,13 +12,13 @@
   #:type-name RootTerm
   #:transparent
   #:property prop:custom-write (λ ([me : NounTerm] [port : Output-Port] _)
-                                 (fprintf port "<~a ~a>" (root-term-p me) (root-term-q me))))
+                                 (fprintf port "[[~a ~a]]" (root-term-p me) (root-term-q me))))
 
 (struct noun-term term ([name : String])
   #:type-name NounTerm
   #:transparent
   #:property prop:custom-write (λ ([me : NounTerm] [port : Output-Port] _)
-                                 (fprintf port "<~a>" (noun-term-name me))))
+                                 (fprintf port "[[~a]]" (noun-term-name me))))
 
 #;
 (struct be-term term ([pnoun : Term])
@@ -59,23 +40,6 @@
 
 
 
-;; (ann (list (noun-term "students")) (Listof Term))
-(noun-term "American")
-;; #;
-;; (define (update-kb stmt kb)
-;;   (match-define (statement c1 c2) stmt)
-;;   (if (member c2 (supersets c1 kb)) false
-;;       (cons (kb-entry c1 c2 #t) kb)))
-
-#;
-(struct all-stmt2 ([c1 : klass] [c2 : klass])
-  #:type-name AllStmt2
-  #:transparent
-  #:property prop:custom-write
-  (lambda ([me : all-stmt2] [port : Output-Port] _)
-    (fprintf port "All ~a ~a." (all-stmt-c1 me) (all-stmt-c2 me))))
-
-;; (define-type Premise (Listof AllStmt2))
 
 (: parse2 (-> Any Term))
 (define (parse2 s)
@@ -94,26 +58,17 @@
     [(noun-term? t) (list t)]
     [(term? t) (error '->terms "you are drunk")]))
 
-;; (: parse3 (-> Any (Listof NounTerm)))
-;; (define (parse3 s)
-;;   (cond
-;;     #;
-;;     [(list? s) (match-define `(all ,p ,q) s)
-;;                (append (parse2 p) (parse2 q))]
-;;     [(symbol? s) (list (noun-term s #;(symbol->string n)))]
-;;     [else null]))
 
-;; (: dummy (-> Any (Listof Term)))
-;; (define (dummy s)
-;;   (list (noun-term "students")))
+(: ->rel (-> Term (a-rel Term)))
+(define (->rel t)
+  (cond
+    [(noun-term? t) (a-rel t t)]
+    [(root-term? t) (a-rel (root-term-p t) (root-term-q t))]
+    [else (error 'rc "you are drunk")]))
 
 (: reflexive-clos (-> (Listof Term) (Rel Term)))
 (define (reflexive-clos a)
-  (for/list ([i (in-list a)])
-    (cond
-      [(noun-term? i) (a-rel i i)]
-      [(root-term? i) (a-rel (root-term-p i) (root-term-q i))]
-      [else (error 'rc "you are drunk")])))
+  (map ->rel a))
 
 
 (: barbara (All (A) (-> (a-rel A) (Rel A) (Rel A))))
@@ -153,7 +108,37 @@
                    (root-term-q conclusion)))
   (cond
     [(member r rtc) #t]
-    [else false]))
+    [else
+     (print-model (generate-counter-model premises))
+     false]))
+
+
+(: generate-counter-model (-> (Listof Term) Model))
+(define (generate-counter-model ts)
+  (define n 0)
+  (define (count!) : Integer
+    (let ([r n])
+      (set! n (+ n 1))
+      r))
+  (define di
+    (for/hash : (HashTable Term Integer)
+        ([j : Term (in-list (remove-duplicates ts))]
+         #:when (not (root-term? j)))
+      (values j (count!))))
+  (define rtc (generate-rtc ts))
+  (for/hash : Model
+      ([i : Term (in-list (hash-keys di))])
+    (values i
+            (sort (for/list : (Listof Integer)
+                      ([j : (a-rel Term) (in-list rtc)]
+                       #:when (equal? (a-rel-b j) i))
+                    (hash-ref di (a-rel-a j)))
+                  <=))))
+
+(: print-model (-> Model Void))
+(define (print-model m)
+  (for ([([k : Term][l : (Listof Integer)]) (in-hash m)])
+    (printf "~a : {~a}~n" k (string-join (map number->string l) ", "))))
 
 
 (module+ test
@@ -175,6 +160,8 @@
                                  (->terms (parse-root '(all students girls)))
                                  (->terms (parse-root '(all children students))))
                          (parse-root '(all children American))))
-    #;#;
-    (define conclusion2 (parse "All girls are children" all-stmt))
-    (check-false (derive kb1 (car conclusion2))))
+    
+    (check-false (derive2 (append (->terms (parse-root '(all girls American)))
+                                  (->terms (parse-root '(all students girls)))
+                                  (->terms (parse-root '(all children students))))
+                          (parse-root '(all girls children)))))
