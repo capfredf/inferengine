@@ -101,8 +101,8 @@
 
 ;; (barbara (rel 1 2) (list (rel 1 1) (rel 2 2) (rel 2 3)))
 
-(: generate-rtc (-> (Listof Term) (Listof (Rel Term))))
-(define (generate-rtc li-t)
+(: make-rtc (-> (Listof Term) (Listof (Rel Term))))
+(define (make-rtc li-t)
   (define w/rc (reflexive-clos li-t))
   (let loop ([acc w/rc])
     (define acc* (for/fold : (Listof (Rel Term))
@@ -113,20 +113,53 @@
         (loop acc*))))
 
 
+(: anti (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(define (anti r1 li-rel)
+  (define x (rel-a r1))
+  (define y (rel-b r1))
+  (cond
+    [(null? li-rel) null]
+    [else
+     (define res (memf
+                  (lambda ([r : (Rel Term)]) : Boolean
+                          (define b (rel-b r))
+                          (and (tv-term? b) (equal? (tv-term-object b) y)))
+                  li-rel))
+     (cond
+       [(null? res) null]
+       [(and (list? res))
+        (define found (car res))
+        (define b (rel-b found))
+        (if (tv-term? b)
+            (cons (make-rel (rel-a found) (tv-term (tv-term-action b) x))
+                  (anti r1 (cdr res)))
+            (error 'anti "you are drunk"))]
+       [else null])]))
+
+(: make-anti-from-rtc (-> (Listof (Rel Term)) (Listof (Rel Term))))
+(define (make-anti-from-rtc rtc)
+  (define acc* (for/fold : (Listof (Rel Term))
+                     ([acc rtc])
+                     ([i (in-list rtc)])
+                 (remove-duplicates (append (anti i acc) acc))))
+  (if (equal? acc* rtc) acc*
+      (make-anti-from-rtc acc*)))
+
+
 (: derive2 (-> (Listof Term) RootTerm Boolean))
 (define (derive2 premises conclusion)
-  (define rtc (generate-rtc premises))
-  (define r (make-rel (root-term-p conclusion)
-                   (root-term-q conclusion)))
+  (define rtc (make-rtc premises))
+  (define anti-rtc (make-anti-from-rtc rtc))
+  (define r (->rel conclusion))
   (cond
-    [(member r rtc) #t]
+    [(member r anti-rtc equal?) #t]
     [else
-     (print-model (generate-counter-model premises))
+     (print-model (make-counter-model premises))
      false]))
 
 
-(: generate-counter-model (-> (Listof Term) Model))
-(define (generate-counter-model ts)
+(: make-counter-model (-> (Listof Term) Model))
+(define (make-counter-model ts)
   (define non-rts (filter (lambda ([x : Term]) : Boolean
                                   (not (root-term? x)))
                           (remove-duplicates ts)))
@@ -135,7 +168,7 @@
         ([j : Term (in-list non-rts)]
          [i : Integer (in-naturals)])
       (values j i)))
-  (define rtc (generate-rtc ts))
+  (define rtc (make-rtc ts))
   (for/hash : Model
       ([i : Term (in-list (hash-keys di))])
     (values i
@@ -149,7 +182,6 @@
 (define (print-model m)
   (for ([([k : Term][l : (Listof Integer)]) (in-hash m)])
     (printf "~a : {~a}~n" k (string-join (map number->string l) ", "))))
-
 
 (module+ test
   (require typed/rackunit)
@@ -169,6 +201,16 @@
   (check-equal? (barbara (make-rel 3 1) (list (make-rel 1 2) (make-rel 1 1) (make-rel 2 2) (make-rel 3 1) (make-rel 3 3) (make-rel 2 2)))
                 (list (make-rel 3 2)))
 
+  (let* ([PUPPIES (noun-term "puppies")]
+         [DOGS (noun-term "dogs")]
+         [CATS (noun-term "cats")]
+         [SEE-DOGS (tv-term 'see DOGS)]
+         [SEE-PUPPIES (tv-term 'see PUPPIES)])
+    (check-equal? (anti (make-rel PUPPIES DOGS)
+                        (list (make-rel CATS SEE-DOGS)))
+                  (list
+                   (make-rel CATS SEE-PUPPIES))))
+
   (check-true (derive2 (append (->terms (parse-root '(all girls American)))
                                (->terms (parse-root '(all students girls))))
                        (parse-root '(all students American))))
@@ -186,4 +228,9 @@
   
   (check-true (derive2 (append (->terms (parse-root '(all dogs (see all cats))))
                                (->terms (parse-root '(all (see all cats) (see all hawks)))))
-                       (parse-root '(all dogs (see all hawks))))))
+                       (parse-root '(all dogs (see all hawks)))))
+  
+  (check-true (derive2 (append
+                        (->terms (parse-root '(all puppies dogs)))
+                        (->terms (parse-root '(all cats (see all dogs)))))
+                       (parse-root '(all cats (see all puppies))))))
