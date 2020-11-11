@@ -1,7 +1,6 @@
 #lang typed/racket
 
-(struct (A) a-rel ([a : A] [b : A]) #:transparent)
-(define-type Rel (All (X) (Listof (a-rel X))))
+(struct (A) rel ([a : A] [b : A]) #:transparent #:type-name Rel)
 
 (define-type Model (HashTable Term (Listof Integer)))
 
@@ -59,41 +58,41 @@
     [(term? t) (error '->terms "you are drunk")]))
 
 
-(: ->rel (-> Term (a-rel Term)))
+(: ->rel (-> Term (rel Term)))
 (define (->rel t)
   (cond
-    [(noun-term? t) (a-rel t t)]
-    [(root-term? t) (a-rel (root-term-p t) (root-term-q t))]
+    [(noun-term? t) (rel t t)]
+    [(root-term? t) (rel (root-term-p t) (root-term-q t))]
     [else (error 'rc "you are drunk")]))
 
-(: reflexive-clos (-> (Listof Term) (Rel Term)))
+(: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
 (define (reflexive-clos a)
   (map ->rel a))
 
 
-(: barbara (All (A) (-> (a-rel A) (Rel A) (Rel A))))
-(define (barbara x rel)
+(: barbara (All (A) (-> (Rel A) (Listof (Rel A)) (Listof (Rel A)))))
+(define (barbara x li-rel)
   (cond
-    [(null? rel) null]
+    [(null? li-rel) null]
     [else 
-     (define res (memf (lambda ([y : (a-rel A)]) : Boolean
-                               (and (equal? (a-rel-b x)
-                                            (a-rel-a y))
-                                    (not (equal? (a-rel-b y)
-                                                 (a-rel-a y)))))
-                       rel))
+     (define res (memf (lambda ([y : (Rel A)]) : Boolean
+                               (and (equal? (rel-b x)
+                                            (rel-a y))
+                                    (not (equal? (rel-b y)
+                                                 (rel-a y)))))
+                       li-rel))
 
      (cond
        [(null? res) null]
        [(list? res)
-        (cons (a-rel (a-rel-a x) (a-rel-b (car res)))
+        (cons (rel (rel-a x) (rel-b (car res)))
               (barbara x (cdr res)))]
        [else null])]))
 
 
-;; (barbara (a-rel 1 2) (list (a-rel 1 1) (a-rel 2 2) (a-rel 2 3)))
+;; (barbara (rel 1 2) (list (rel 1 1) (rel 2 2) (rel 2 3)))
 
-(: generate-rtc (-> (Listof Term) (Rel Term)))
+(: generate-rtc (-> (Listof Term) (Listof (Rel Term))))
 (define (generate-rtc li-t)
   (define w/rc (reflexive-clos li-t))
   (for/fold ([acc w/rc])
@@ -104,7 +103,7 @@
 (: derive2 (-> (Listof Term) RootTerm Boolean))
 (define (derive2 premises conclusion)
   (define rtc (generate-rtc premises))
-  (define r (a-rel (root-term-p conclusion)
+  (define r (rel (root-term-p conclusion)
                    (root-term-q conclusion)))
   (cond
     [(member r rtc) #t]
@@ -115,24 +114,22 @@
 
 (: generate-counter-model (-> (Listof Term) Model))
 (define (generate-counter-model ts)
-  (define n 0)
-  (define (count!) : Integer
-    (let ([r n])
-      (set! n (+ n 1))
-      r))
+  (define non-rts (filter (lambda ([x : Term]) : Boolean
+                                  (not (root-term? x)))
+                          (remove-duplicates ts)))
   (define di
     (for/hash : (HashTable Term Integer)
-        ([j : Term (in-list (remove-duplicates ts))]
-         #:when (not (root-term? j)))
-      (values j (count!))))
+        ([j : Term (in-list non-rts)]
+         [i : Integer (in-naturals)])
+      (values j i)))
   (define rtc (generate-rtc ts))
   (for/hash : Model
       ([i : Term (in-list (hash-keys di))])
     (values i
             (sort (for/list : (Listof Integer)
-                      ([j : (a-rel Term) (in-list rtc)]
-                       #:when (equal? (a-rel-b j) i))
-                    (hash-ref di (a-rel-a j)))
+                      ([j : (Rel Term) (in-list rtc)]
+                       #:when (equal? (rel-b j) i))
+                    (hash-ref di (rel-a j)))
                   <=))))
 
 (: print-model (-> Model Void))
@@ -147,10 +144,10 @@
            [terms (->terms input)])
       (check-equal? (length terms) 3))
 
-    (check-equal? (barbara (a-rel 1 2) (list (a-rel 1 1) (a-rel 2 2) (a-rel 2 3)))
-                  (list (a-rel 1 3)))
-    (check-equal? (barbara (a-rel 3 1) (list (a-rel 1 2) (a-rel 1 1) (a-rel 2 2) (a-rel 3 1) (a-rel 3 3) (a-rel 2 2)))
-                  (list (a-rel 3 2)))
+    (check-equal? (barbara (rel 1 2) (list (rel 1 1) (rel 2 2) (rel 2 3)))
+                  (list (rel 1 3)))
+    (check-equal? (barbara (rel 3 1) (list (rel 1 2) (rel 1 1) (rel 2 2) (rel 3 1) (rel 3 3) (rel 2 2)))
+                  (list (rel 3 2)))
 
     (check-true (derive2 (append (->terms (parse-root '(all girls American)))
                                  (->terms (parse-root '(all students girls))))
