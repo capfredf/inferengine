@@ -95,9 +95,13 @@
 (: generate-rtc (-> (Listof Term) (Listof (Rel Term))))
 (define (generate-rtc li-t)
   (define w/rc (reflexive-clos li-t))
-  (for/fold ([acc w/rc])
-            ([i (in-list w/rc)])
-    (remove-duplicates (append (barbara i acc) acc))))
+  (let loop ([acc w/rc])
+    (define acc* (for/fold : (Listof (Rel Term))
+                     ([acc w/rc])
+                     ([i (in-list w/rc)])
+                   (remove-duplicates (append (barbara i acc) acc))))
+    (if (equal? acc acc*) acc*
+        (loop acc*))))
 
 
 (: derive2 (-> (Listof Term) RootTerm Boolean))
