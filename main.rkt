@@ -222,4 +222,17 @@
   (check-true (derive2 (append
                         (->terms (parse-root '(all puppies dogs)))
                         (->terms (parse-root '(all cats (see all dogs)))))
-                       (parse-root '(all cats (see all puppies))))))
+                       (parse-root '(all cats (see all puppies)))))
+
+  (check-true (derive2 (append
+                        (->terms (parse-root '(all puppies dogs)))
+                        (->terms (parse-root '(all ducks (see all dogs))))
+                        (->terms (parse-root '(all (see all dogs) birds))))
+                       (parse-root '(all ducks birds))))
+  
+  (check-true (derive2 (append
+                        (->terms (parse-root '(all puppies dogs)))
+                        (->terms (parse-root '(all ducks (see all dogs))))
+                        (->terms (parse-root '(all (see all dogs) birds)))
+                        (->terms (parse-root '(all birds (see all humans)))))
+                       (parse-root '(all (see all dogs) (see all humans))))))
