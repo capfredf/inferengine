@@ -1,4 +1,9 @@
 #lang typed/racket
+(define debug ((inst make-parameter Boolean Boolean) #f))
+
+(define (debug-eprintf [fmt : String] . args)
+  (when (debug)
+    (apply eprintf fmt args)))
 
 (define-type RelKind Boolean)
 
@@ -8,7 +13,7 @@
 (define (make-rel a b #:rel-kind [rel-kind #f])
   (rel a b rel-kind))
 
-(define-type Model (HashTable Term (Listof Integer)))
+(define-type Model (HashTable Term (Listof (U Integer (Pairof Integer Integer)))))
 
 (struct term () #:type-name Term #:transparent)
 
@@ -34,9 +39,16 @@
 
 (define-type TransitiveVerb (U 'see))
 
+(struct verb-term term ([name : TransitiveVerb])
+  #:type-name VerbTerm
+  #:transparent
+  #:property prop:custom-write
+  (λ ([me : VerbTerm] [port : Output-Port] _)
+    (fprintf port "[[~a]]" (verb-term-name me))))
+
 (define-type ObjectTerm (U TVTerm NounTerm))
 
-(struct tv-term term ([action : TransitiveVerb]
+(struct tv-term term ([action : VerbTerm]
                       [object : Term])
   #:type-name TVTerm
   #:transparent
@@ -49,7 +61,7 @@
 (: parse (-> Any Term))
 (define (parse s)
   (match s
-    [`(,v all ,p) #:when (eq? v 'see) (tv-term 'see (parse p))]
+    [`(,v all ,p) #:when (eq? v 'see) (tv-term (verb-term 'see) (parse p))]
     [`,n #:when (symbol? n)
          (noun-term (symbol->string n))]))
 
@@ -143,42 +155,69 @@
   (cond
     [(member r down-rtc equal?) #t]
     [else
-     (print-model (make-counter-model premises))
+     (when (debug)
+       (printf "~a~n" down-rtc))
+     (print-model (make-counter-model premises down-rtc))
      false]))
 
 
-(: make-counter-model (-> (Listof Term) Model))
-(define (make-counter-model ts)
+(: make-counter-model (-> (Listof Term) (Listof (Rel Term)) Model))
+(define (make-counter-model ts rtc)
   (define non-rts (filter (lambda ([x : Term]) : Boolean
-                                  (not (root-term? x)))
+                                  (and (not (root-term? x))
+                                       (not (tv-term? x))))
                           (remove-duplicates ts)))
   (define di
     (for/hash : (HashTable Term Integer)
         ([j : Term (in-list non-rts)]
          [i : Integer (in-naturals)])
       (values j i)))
-  (define rtc (make-rtc ts))
-  (for/hash : Model
-      ([i : Term (in-list (hash-keys di))])
-    (values i
-            (sort (for/list : (Listof Integer)
-                      ([j : (Rel Term) (in-list rtc)]
-                       #:when (equal? (rel-b j) i))
-                    (hash-ref di (rel-a j)))
-                  <=))))
+
+  (define ret (for/hash : Model
+                  ([i : Term (in-list (hash-keys di))])
+                (let ([ret (sort (for/list : (Listof Integer)
+                                     ([j : (Rel Term) (in-list rtc)]
+                                      #:when (equal? (rel-b j) i))
+                                   (hash-ref di (rel-a j)))
+                                 <=)])
+                  (values i ret))))
+  ;; see dogs see cats
+  (define (lookup [t : Term]) : (Listof Integer)
+    (cond
+      [(and (noun-term? t) (hash-ref di t #f)) => (lambda (v) (list v))]
+      [(tv-term? t) (define ret (for/fold : (Listof Integer)
+                                    ([acc : (Listof Integer) '()])
+                                    ([i : (Rel Term) (in-list rtc)])
+                                  #:final (equal? (rel-b i) t)
+                                  (lookup (rel-a i))))
+                    ret]
+      [else (error 'hi "nothing found")]))
+  
+  (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
+                                                     ([i : (Rel Term) (in-list rtc)]
+                                                      #:when (tv-term? (rel-b i)))
+                                                   (for*/list : (Listof (Pair Integer Integer))
+                                                       ([j (in-list (lookup (rel-a i)))]
+                                                        [k (in-list (lookup (tv-term-object (rel-b i))))])
+                                                     (cons j k))))))
+  (hash-set ret (verb-term 'see) action-set))
 
 (: print-model (-> Model Void))
 (define (print-model m)
-  (for ([([k : Term][l : (Listof Integer)]) (in-hash m)])
-    (printf "~a : {~a}~n" k (string-join (map number->string l) ", "))))
+  (define (stringify (i : (U Integer (Pairof Integer Integer)))) : String
+    (cond
+      [(number? i) (number->string i)]
+      [(pair? i) (format "{~a, ~a}" (car i) (cdr i))]))
+  (for ([([k : Term][l : (Listof (U Integer (Pairof Integer Integer)))]) (in-hash m)])
+    (printf "~a : {~a}~n" k (string-join (map stringify l) ", "))))
 
 (module+ test
   (require typed/rackunit)
-  (check-equal? (parse '(see all ducks)) (tv-term 'see (noun-term "ducks")))
-  (check-equal? (parse '(see all (see all ducks))) (tv-term 'see (tv-term 'see (noun-term "ducks"))))
+  (check-equal? (parse '(see all ducks)) (tv-term (verb-term 'see) (noun-term "ducks")))
+  (check-equal? (parse '(see all (see all ducks))) (tv-term (verb-term 'see) (tv-term (verb-term 'see) (noun-term "ducks"))))
   (let* ([raw-input '(all dogs (see all (see all ducks)))]
          [rt (parse-root raw-input)])
-    (check-equal? rt (root-term (noun-term "dogs") (tv-term 'see (tv-term 'see (noun-term "ducks")))))
+    (check-equal? rt (root-term (noun-term "dogs") (tv-term (verb-term 'see) (tv-term (verb-term 'see) (noun-term "ducks")))))
     (check-equal? (length (->terms rt)) 5))
   
   (let* ([input (parse-root '(all ducks birds))]
@@ -193,13 +232,13 @@
   (let* ([PUPPIES (noun-term "puppies")]
          [DOGS (noun-term "dogs")]
          [CATS (noun-term "cats")]
-         [SEE-DOGS (tv-term 'see DOGS)]
-         [SEE-PUPPIES (tv-term 'see PUPPIES)])
+         [SEE-DOGS (tv-term (verb-term 'see) DOGS)]
+         [SEE-PUPPIES (tv-term (verb-term 'see) PUPPIES)])
     (check-equal? (down (make-rel PUPPIES DOGS)
                         (list (make-rel CATS SEE-DOGS)))
                   (list
                    (make-rel CATS SEE-PUPPIES))))
-
+  
   (check-true (derive2 (append (->terms (parse-root '(all girls American)))
                                (->terms (parse-root '(all students girls))))
                        (parse-root '(all students American))))
@@ -208,17 +247,18 @@
                                (->terms (parse-root '(all students girls)))
                                (->terms (parse-root '(all children students))))
                        (parse-root '(all children American))))
-  
+
   (check-false (derive2 (append (->terms (parse-root '(all girls American)))
                                 (->terms (parse-root '(all students girls)))
                                 (->terms (parse-root '(all children students))))
                         (parse-root '(all girls children))))
   (println "starting test verbs")
   
-  (check-true (derive2 (append (->terms (parse-root '(all dogs (see all cats))))
+  (check-true
+   (derive2 (append (->terms (parse-root '(all dogs (see all cats))))
                                (->terms (parse-root '(all (see all cats) (see all hawks)))))
                        (parse-root '(all dogs (see all hawks)))))
-  
+
   (check-true (derive2 (append
                         (->terms (parse-root '(all puppies dogs)))
                         (->terms (parse-root '(all cats (see all dogs)))))
@@ -235,4 +275,10 @@
                         (->terms (parse-root '(all ducks (see all dogs))))
                         (->terms (parse-root '(all (see all dogs) birds)))
                         (->terms (parse-root '(all birds (see all humans)))))
-                       (parse-root '(all (see all dogs) (see all humans))))))
+                       (parse-root '(all (see all dogs) (see all humans)))))
+
+  (parameterize ([debug #t])
+    (check-true (derive2 (append
+                          (->terms (parse-root '(all puppies dogs)))
+                          (->terms (parse-root '(all ducks (see all dogs)))))
+                         (parse-root '(all (see all dogs) (see all puppie)))))))
