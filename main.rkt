@@ -30,6 +30,11 @@
   #:property prop:custom-write (λ ([me : NounTerm] [port : Output-Port] _)
                                  (fprintf port "[[~a]]" (noun-term-name me))))
 
+(struct self-term term ()
+  #:type-name SelfTerm
+  #:transparent
+  #:property prop:custom-write (λ ([me : SelfTerm] [port : Output-Port] _)
+                                 (fprintf port "self")))
 #;
 (struct be-term term ([pnoun : Term])
   #:type-name BeTerm
@@ -62,6 +67,7 @@
 (define (parse s)
   (match s
     [`(,v all ,p) #:when (eq? v 'see) (tv-term (verb-term 'see) (parse p))]
+    [`(,v self) #:when (eq? v 'see) (tv-term (verb-term 'see) (self-term))]
     [`,n #:when (symbol? n)
          (noun-term (symbol->string n))]))
 
@@ -75,6 +81,7 @@
     [(root-term? t) (append (list t) (->terms (root-term-p t)) (->terms (root-term-q t)))]
     [(noun-term? t) (list t)]
     [(tv-term? t) (append (list t) (->terms (tv-term-object t)))]
+    [(self-term? t) (list t)]
     [(term? t) (error '->terms "you are drunk")]))
 
 
@@ -84,6 +91,7 @@
     [(noun-term? t) (make-rel t t)]
     [(root-term? t) (make-rel (root-term-p t) (root-term-q t))]
     [(tv-term? t) (make-rel t t)]
+    [(self-term? t) (make-rel t t)]
     [else (error 'rc "you are drunk")]))
 
 (: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
@@ -147,17 +155,38 @@
       (apply-down acc*)))
 
 
+(: all-to-self (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(define (all-to-self r1 li-rel)
+  (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
+                      (define a (rel-a r))
+                      (define b (rel-b r))
+                      (cond
+                        [(and (tv-term? b) (equal? (tv-term-object b) a))
+                         (make-rel (rel-a r) (tv-term (tv-term-action b) (self-term)))]
+                        [else #f]))
+              li-rel))
+
+(: apply-all-to-self (-> (Listof (Rel Term)) (Listof (Rel Term))))
+(define (apply-all-to-self rtc)
+  (define acc* (for/fold : (Listof (Rel Term))
+                     ([acc rtc])
+                     ([i (in-list rtc)])
+                 (remove-duplicates (append (all-to-self i acc) acc))))
+  (debug-eprintf "acc* is ~a" acc*)
+  (if (equal? acc* rtc) acc*
+      (apply-all-to-self acc*)))
+
 (: derive2 (-> (Listof Term) RootTerm Boolean))
 (define (derive2 premises conclusion)
   (define rtc (make-rtc premises))
-  (define down-rtc (apply-down rtc))
+  (define rtc^ ((compose apply-all-to-self (compose apply-down make-rtc)) premises))
   (define r (->rel conclusion))
   (cond
-    [(member r down-rtc equal?) #t]
+    [(member r rtc^ equal?) #t]
     [else
      (when (debug)
-       (printf "~a~n" down-rtc))
-     (print-model (make-counter-model premises down-rtc))
+       (printf "~a~n" rtc^))
+     (print-model (make-counter-model premises rtc^))
      false]))
 
 
@@ -277,8 +306,13 @@
                         (->terms (parse-root '(all birds (see all humans)))))
                        (parse-root '(all (see all dogs) (see all humans)))))
 
-  (parameterize ([debug #t])
-    (check-true (derive2 (append
-                          (->terms (parse-root '(all puppies dogs)))
-                          (->terms (parse-root '(all ducks (see all dogs)))))
-                         (parse-root '(all (see all dogs) (see all puppie)))))))
+  (check-false (derive2 (append
+                         (->terms (parse-root '(all puppies dogs)))
+                         (->terms (parse-root '(all ducks (see all dogs)))))
+                        (parse-root '(all (see all dogs) (see all puppie)))))
+
+  ;; all see all dogs see themselves
+  ;; all dogs see themselves
+  (check-true (derive2 (append
+                        (->terms (parse-root '(all dogs (see all dogs)))))
+                       (parse-root '(all dogs (see self))))))
