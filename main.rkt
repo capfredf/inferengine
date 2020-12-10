@@ -1,5 +1,5 @@
 #lang typed/racket
-(define debug ((inst make-parameter Boolean Boolean) #f))
+(define debug (make-parameter (ann #f Boolean)))
 
 (define (debug-eprintf [fmt : String] . args)
   (when (debug)
@@ -17,81 +17,78 @@
 
 (struct term () #:type-name Term #:transparent)
 
-(struct root-term term ([p : Term]
-                        [q : Term])
-  #:type-name RootTerm
+(struct root term ([p : Term]
+                   [q : Term])
+  #:type-name Root
   #:transparent
-  #:property prop:custom-write (λ ([me : NounTerm] [port : Output-Port] _)
-                                 (fprintf port "[[~a ~a]]" (root-term-p me) (root-term-q me))))
+  #:property prop:custom-write (λ ([me : Root] [port : Output-Port] [m : (U Boolean 0 1)])
+                                 (fprintf port "[[~a ~a]]" (root-p me) (root-q me))))
 
-(struct noun-term term ([name : String])
-  #:type-name NounTerm
+(struct noun term ([name : String])
+  #:type-name Noun
   #:transparent
-  #:property prop:custom-write (λ ([me : NounTerm] [port : Output-Port] _)
-                                 (fprintf port "[[~a]]" (noun-term-name me))))
+  #:property prop:custom-write (λ ([me : Noun] [port : Output-Port] [m : (U Boolean 0 1)])
+                                 (fprintf port "[[~a]]" (noun-name me))))
 
-(struct self-term term ()
-  #:type-name SelfTerm
+(struct self term ()
+  #:type-name Self
   #:transparent
-  #:property prop:custom-write (λ ([me : SelfTerm] [port : Output-Port] _)
+  #:property prop:custom-write (λ ([me : Self] [port : Output-Port] [m : (U Boolean 0 1)])
                                  (fprintf port "self")))
 #;
 (struct be-term term ([pnoun : Term])
   #:type-name BeTerm
-  #:transparent
   #:property prop:custom-write (λ ([me : term] [port : Output-Port] _)
                                  (fprintf port "<are ~a>" (be-term-pnoun me))))
 
-(define-type TransitiveVerb (U 'see))
+(define-type VerbName (U 'see))
 
-(struct verb-term term ([name : TransitiveVerb])
-  #:type-name VerbTerm
+(struct verb term ([name : VerbName])
+  #:type-name Verb
   #:transparent
   #:property prop:custom-write
-  (λ ([me : VerbTerm] [port : Output-Port] _)
-    (fprintf port "[[~a]]" (verb-term-name me))))
+  (λ ([me : Verb] [port : Output-Port] _)
+    (fprintf port "[[~a]]" (verb-name me))))
 
-(define-type ObjectTerm (U TVTerm NounTerm))
+;; (define-type ObjectTerm (U VerbPhrase Noun))
 
-(struct tv-term term ([action : VerbTerm]
-                      [object : Term])
-  #:type-name TVTerm
+(struct verb-phrase term ([action : Verb]
+                          [object : Term])
+  #:type-name VerbPhrase
   #:transparent
-  #:property prop:custom-write (λ ([me : TVTerm] [port : Output-Port] _)
-                                 (fprintf port "~a ~a" (tv-term-action me) (tv-term-object me))))
-
-
+  #:property prop:custom-write (λ ([me : VerbPhrase] [port : Output-Port] _)
+                                 (fprintf port "~a ~a" (verb-phrase-action me) (verb-phrase-object me))))
 
 
 (: parse (-> Any Term))
 (define (parse s)
   (match s
-    [`(,v all ,p) #:when (eq? v 'see) (tv-term (verb-term 'see) (parse p))]
-    [`(,v self) #:when (eq? v 'see) (tv-term (verb-term 'see) (self-term))]
+    [`(,v all ,p) #:when (eq? v 'see) (verb-phrase (verb 'see) (parse p))]
+    [`(,v self) #:when (eq? v 'see) (verb-phrase (verb 'see) (self))]
     [`,n #:when (symbol? n)
-         (noun-term (symbol->string n))]))
+         (noun (symbol->string n))]))
 
-(define (parse-root [s : Any]) : RootTerm
+(define (parse-root [s : Any]) : Root
   (match-define `(all ,p ,q) s)
-  (root-term (parse p) (parse q)))
+  (root (parse p) (parse q)))
 
 (: ->terms (-> Term (Listof Term)))
 (define (->terms t)
   (cond
-    [(root-term? t) (append (list t) (->terms (root-term-p t)) (->terms (root-term-q t)))]
-    [(noun-term? t) (list t)]
-    [(tv-term? t) (append (list t) (->terms (tv-term-object t)))]
-    [(self-term? t) (list t)]
+    [(root? t) (append (list t) (->terms (root-p t)) (->terms (root-q t)))]
+    [(noun? t) (list t)]
+    [(verb-phrase? t) (append (list t) (->terms (verb-phrase-object t)))]
+    [(self? t) (list t)]
     [(term? t) (error '->terms "you are drunk")]))
 
 
 (: ->rel (-> Term (rel Term)))
 (define (->rel t)
   (cond
-    [(noun-term? t) (make-rel t t)]
-    [(root-term? t) (make-rel (root-term-p t) (root-term-q t))]
-    [(tv-term? t) (make-rel t t)]
-    [(self-term? t) (make-rel t t)]
+    [(noun? t) (make-rel t t)]
+    [(root? t) (make-rel (root-p t) (root-q t))]
+    [(verb-phrase? t) (make-rel t t)]
+    [(self? t) (make-rel t t)]
     [else (error 'rc "you are drunk")]))
 
 (: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
@@ -140,8 +137,8 @@
   (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
                       (define b (rel-b r))
                       (cond
-                        [(and (tv-term? b) (equal? (tv-term-object b) y))
-                         (make-rel (rel-a r) (tv-term (tv-term-action b) x))]
+                        [(and (verb-phrase? b) (equal? (verb-phrase-object b) y))
+                         (make-rel (rel-a r) (verb-phrase (verb-phrase-action b) x))]
                         [else #f]))
               li-rel))
 
@@ -161,8 +158,8 @@
                       (define a (rel-a r))
                       (define b (rel-b r))
                       (cond
-                        [(and (tv-term? b) (equal? (tv-term-object b) a))
-                         (make-rel (rel-a r) (tv-term (tv-term-action b) (self-term)))]
+                        [(and (verb-phrase? b) (equal? (verb-phrase-object b) a))
+                         (make-rel (rel-a r) (verb-phrase (verb-phrase-action b) (self)))]
                         [else #f]))
               li-rel))
 
@@ -176,10 +173,28 @@
   (if (equal? acc* rtc) acc*
       (apply-all-to-self acc*)))
 
-(: derive2 (-> (Listof Term) RootTerm Boolean))
+(define-type RuleProc (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+
+(: apply-rule (-> (Listof (Rel Term)) RuleProc * (Listof (Rel Term))))
+(define (apply-rule rtc . rule-procs)
+  (for/fold : (Listof (Rel Term))
+      ([rtc^ rtc])
+      ([rp rule-procs])
+    (let loop : (Listof (Rel Term))
+         ([rtc^^ rtc^])
+         (define rtc* (for/fold : (Listof (Rel Term))
+                          ([rtc^^^ rtc^^])
+                          ([i (in-list rtc^^)])
+                        (remove-duplicates (append (rp i rtc^^^) rtc^^^))))
+         (debug-eprintf "acc* is ~a" rtc*)
+         (if (equal? rtc* rtc^^) rtc*
+             (loop rtc*)))))
+                            
+
+(: derive2 (-> (Listof Term) Root Boolean))
 (define (derive2 premises conclusion)
   (define rtc (make-rtc premises))
-  (define rtc^ ((compose apply-all-to-self (compose apply-down make-rtc)) premises))
+  (define rtc^ (apply-rule (make-rtc premises) down all-to-self))
   (define r (->rel conclusion))
   (cond
     [(member r rtc^ equal?) #t]
@@ -193,8 +208,8 @@
 (: make-counter-model (-> (Listof Term) (Listof (Rel Term)) Model))
 (define (make-counter-model ts rtc)
   (define non-rts (filter (lambda ([x : Term]) : Boolean
-                                  (and (not (root-term? x))
-                                       (not (tv-term? x))))
+                                  (and (not (root? x))
+                                       (not (verb-phrase? x))))
                           (remove-duplicates ts)))
   (define di
     (for/hash : (HashTable Term Integer)
@@ -213,8 +228,8 @@
   ;; see dogs see cats
   (define (lookup [t : Term]) : (Listof Integer)
     (cond
-      [(and (noun-term? t) (hash-ref di t #f)) => (lambda (v) (list v))]
-      [(tv-term? t) (define ret (for/fold : (Listof Integer)
+      [(and (noun? t) (hash-ref di t #f)) => (lambda (v) (list v))]
+      [(verb-phrase? t) (define ret (for/fold : (Listof Integer)
                                     ([acc : (Listof Integer) '()])
                                     ([i : (Rel Term) (in-list rtc)])
                                   #:final (equal? (rel-b i) t)
@@ -224,12 +239,12 @@
   
   (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
                                                      ([i : (Rel Term) (in-list rtc)]
-                                                      #:when (tv-term? (rel-b i)))
+                                                      #:when (verb-phrase? (rel-b i)))
                                                    (for*/list : (Listof (Pair Integer Integer))
                                                        ([j (in-list (lookup (rel-a i)))]
-                                                        [k (in-list (lookup (tv-term-object (rel-b i))))])
+                                                        [k (in-list (lookup (verb-phrase-object (rel-b i))))])
                                                      (cons j k))))))
-  (hash-set ret (verb-term 'see) action-set))
+  (hash-set ret (verb 'see) action-set))
 
 (: print-model (-> Model Void))
 (define (print-model m)
@@ -242,11 +257,11 @@
 
 (module+ test
   (require typed/rackunit)
-  (check-equal? (parse '(see all ducks)) (tv-term (verb-term 'see) (noun-term "ducks")))
-  (check-equal? (parse '(see all (see all ducks))) (tv-term (verb-term 'see) (tv-term (verb-term 'see) (noun-term "ducks"))))
+  (check-equal? (parse '(see all ducks)) (verb-phrase (verb 'see) (noun "ducks")))
+  (check-equal? (parse '(see all (see all ducks))) (verb-phrase (verb 'see) (verb-phrase (verb 'see) (noun "ducks"))))
   (let* ([raw-input '(all dogs (see all (see all ducks)))]
          [rt (parse-root raw-input)])
-    (check-equal? rt (root-term (noun-term "dogs") (tv-term (verb-term 'see) (tv-term (verb-term 'see) (noun-term "ducks")))))
+    (check-equal? rt (root (noun "dogs") (verb-phrase (verb 'see) (verb-phrase (verb 'see) (noun "ducks")))))
     (check-equal? (length (->terms rt)) 5))
   
   (let* ([input (parse-root '(all ducks birds))]
@@ -258,11 +273,11 @@
   (check-equal? (barbara (make-rel 3 1) (list (make-rel 1 2) (make-rel 1 1) (make-rel 2 2) (make-rel 3 1) (make-rel 3 3) (make-rel 2 2)))
                 (list (make-rel 3 2)))
 
-  (let* ([PUPPIES (noun-term "puppies")]
-         [DOGS (noun-term "dogs")]
-         [CATS (noun-term "cats")]
-         [SEE-DOGS (tv-term (verb-term 'see) DOGS)]
-         [SEE-PUPPIES (tv-term (verb-term 'see) PUPPIES)])
+  (let* ([PUPPIES (noun "puppies")]
+         [DOGS (noun "dogs")]
+         [CATS (noun "cats")]
+         [SEE-DOGS (verb-phrase (verb 'see) DOGS)]
+         [SEE-PUPPIES (verb-phrase (verb 'see) PUPPIES)])
     (check-equal? (down (make-rel PUPPIES DOGS)
                         (list (make-rel CATS SEE-DOGS)))
                   (list
