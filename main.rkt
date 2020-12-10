@@ -313,6 +313,11 @@
 
   ;; all see all dogs see themselves
   ;; all dogs see themselves
+  ;; all see themselves see all hawks
   (check-true (derive2 (append
                         (->terms (parse-root '(all dogs (see all dogs)))))
-                       (parse-root '(all dogs (see self))))))
+                       (parse-root '(all dogs (see self)))))
+  
+  (check-false (derive2 (append
+                        (->terms (parse-root '(all dogs (see self)))))
+                       (parse-root '(all dogs (see all dogs))))))
