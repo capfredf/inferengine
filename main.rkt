@@ -5,6 +5,10 @@
   (when (debug)
     (apply eprintf fmt args)))
 
+(define-syntax-rule (debug-ctx expr)
+  (parameterize ([debug #t])
+    expr))
+
 (define-type RuleProc (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
 (define-type RelKind Boolean)
 
@@ -152,7 +156,7 @@
                           ([rtc^^^ rtc^^])
                           ([i (in-list rtc^^)])
                         (remove-duplicates (append (rp i rtc^^^) rtc^^^))))
-         (debug-eprintf "acc* is ~a" rtc*)
+         (debug-eprintf "acc* is ~a~n" rtc*)
          (if (equal? rtc* rtc^^) rtc*
              (loop rtc*)))))
                             
@@ -167,46 +171,114 @@
      (print-model (make-counter-model premises li-rel))
      false]))
 
+(define-type Element (U Natural (List Natural Natural)))
+
+(define (basic-element-maker [tick! : (-> Natural)]) : Element
+  (tick!))
+
+(define (element-maker-for-self [tick! : (-> Natural)]) : Element
+  (list (tick!) (tick!)))
+
+(define (normalize-elements [l : (Listof Element)]) : (Listof Integer)
+  (cond
+    [(empty? l) empty]
+    [(pair? l)
+     (define c (car l))
+     (cond
+       [(list? c) (append c (normalize-elements (cdr l)))]
+       [(number? c) (cons c (normalize-elements (cdr l)))])]
+    [else (error 'normalize "your are drunk")]))
+
+(define (element-product [p : (Pairof Element Element)]) : (Listof (Pairof Integer Integer))
+  (cond
+    [(and (number? (car p)) (number? (cdr p))) (list (cons (car p) (cdr p)))]
+    [(and (list? (car p)) (list? (cdr p))) (list (cons (first (car p)) (first (cdr p)))
+                                                 (cons (first (car p)) (second (cdr p)))
+                                                 (cons (second (car p)) (first (cdr p)))
+                                                 (cons (second (car p)) (second (cdr p))))]
+    [else (error 'element-prod "your are drunk")]))
+
+(define (contains-subterm? [t : Term] [tgt : Term]) : Boolean
+  (cond
+    [(equal? t tgt) #t]
+    [else
+     (match t
+       [(root a b) (and (contains-subterm? a t)
+                        (contains-subterm? b t))]
+       [(verb-phrase a o)
+        (and (contains-subterm? a t)
+             (contains-subterm? o t))]
+       [else #f])]))
 
 (: make-counter-model (-> (Listof Term) (Listof (Rel Term)) Model))
 (define (make-counter-model ts rtc)
+
+  (define contains-self? (memf (lambda ([arg : Term]) : Boolean
+                                       (contains-subterm? arg (self)))
+                               ts))
   (define non-rts (filter (lambda ([x : Term]) : Boolean
                                   (and (not (root? x))
-                                       (not (verb-phrase? x))))
+                                       (not (verb-phrase? x))
+                                       (not (self? x))))
                           (remove-duplicates ts)))
+  (define (make-counter) : (-> Natural)
+    (define n : Natural 0)
+    (λ () : Natural
+      (define old n)
+      (set! n (add1 n))
+      old))
+
+  (define counter (make-counter))
+
+  (define em (if contains-self? element-maker-for-self
+                 basic-element-maker))
   (define di
-    (for/hash : (HashTable Term Integer)
+    (for/hash : (HashTable Term Element)
         ([j : Term (in-list non-rts)]
          [i : Integer (in-naturals)])
-      (values j i)))
+      (values j (em counter))))
 
   (define ret (for/hash : Model
                   ([i : Term (in-list (hash-keys di))])
-                (let ([ret (sort (for/list : (Listof Integer)
+                (let ([ret (sort (for/list : (Listof Element)
                                      ([j : (Rel Term) (in-list rtc)]
                                       #:when (equal? (rel-b j) i))
                                    (hash-ref di (rel-a j)))
                                  <=)])
-                  (values i ret))))
+                  (values i (normalize-elements ret)))))
 
-  (define (lookup [t : Term]) : (Listof Integer)
+  (define (lookup [t : Term]) : (Listof Element)
     (cond
       [(and (noun? t) (hash-ref di t #f)) => (lambda (v) (list v))]
-      [(verb-phrase? t) (define ret (for/fold : (Listof Integer)
-                                    ([acc : (Listof Integer) '()])
+      [(verb-phrase? t) (define ret (for/fold : (Listof Element)
+                                    ([acc : (Listof Element) '()])
                                     ([i : (Rel Term) (in-list rtc)])
                                   #:final (equal? (rel-b i) t)
                                   (lookup (rel-a i))))
                         ret]
       [else (error 'hi "nothing found")]))
+
+  (define (pair-self [a : Element]) : (Listof (Pairof Integer Integer))
+    (cond
+      [(list? a) (list (cons (first a) (first a))
+                       (cons (second a) (second a)))]
+      [else (error 'pair-self "you are drunk")]))
   
   (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
                                                      ([i : (Rel Term) (in-list rtc)]
                                                       #:when (verb-phrase? (rel-b i)))
-                                                   (for*/list : (Listof (Pair Integer Integer))
-                                                       ([j (in-list (lookup (rel-a i)))]
-                                                        [k (in-list (lookup (verb-phrase-object (rel-b i))))])
-                                                     (cons j k))))))
+                                                   (for/fold : (Listof (Pair Integer Integer))
+                                                       ([acc : (Listof (Pair Integer Integer)) '()])
+                                                       ([j (in-list (lookup (rel-a i)))])
+                                                     (define obj (verb-phrase-object (rel-b i)))
+                                                     (cond
+                                                       [(self? obj)
+                                                        (append (pair-self j) acc)]
+                                                       [else
+                                                        (for/fold : (Listof (Pair Integer Integer))
+                                                            ([acc^ acc])
+                                                            ([k (in-list (lookup obj))])
+                                                          (append (element-product (cons j k)) acc^))]))))))
   (hash-set ret (verb 'see) action-set))
 
 (: print-model (-> Model Void))
@@ -302,7 +374,13 @@
   (check-true (derive2 (append
                         (->terms (parse-root '(all dogs (see all dogs)))))
                        (parse-root '(all dogs (see self)))))
-  
-  (check-false (derive2 (append
-                        (->terms (parse-root '(all dogs (see self)))))
-                        (parse-root '(all dogs (see all dogs))))))
+
+  (debug-ctx
+   (check-false (derive2 (append
+                          (->terms (parse-root '(all dogs (see self)))))
+                         (parse-root '(all dogs (see all dogs))))))
+  (debug-ctx
+   (check-false (derive2 (append
+                          (->terms (parse-root '(all puppies dogs)))
+                          (->terms (parse-root '(all dogs (see self)))))
+                         (parse-root '(all dogs (see all dogs)))))))
