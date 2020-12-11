@@ -5,6 +5,7 @@
   (when (debug)
     (apply eprintf fmt args)))
 
+(define-type RuleProc (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
 (define-type RelKind Boolean)
 
 (struct (A) rel ([a : A] [b : A][kind : RelKind]) #:transparent #:type-name Rel)
@@ -96,12 +97,12 @@
   (map ->rel a))
 
 
-(: barbara (All (A) (-> (Rel A) (Listof (Rel A)) (Listof (Rel A)))))
+(: barbara RuleProc)
 (define (barbara x li-rel)
   (cond
     [(null? li-rel) null]
     [else 
-     (define res (memf (lambda ([y : (Rel A)]) : Boolean
+     (define res (memf (lambda ([y : (Rel Term)]) : Boolean
                                (and (equal? (rel-b x)
                                             (rel-a y))
                                     (not (equal? (rel-b y)
@@ -116,21 +117,7 @@
        [else null])]))
 
 
-;; (barbara (rel 1 2) (list (rel 1 1) (rel 2 2) (rel 2 3)))
-
-(: make-rtc (-> (Listof Term) (Listof (Rel Term))))
-(define (make-rtc li-t)
-  (define w/rc (reflexive-clos li-t))
-  (let loop ([acc w/rc])
-    (define acc* (for/fold : (Listof (Rel Term))
-                     ([acc w/rc])
-                     ([i (in-list w/rc)])
-                   (remove-duplicates (append (barbara i acc) acc))))
-    (if (equal? acc acc*) acc*
-        (loop acc*))))
-
-
-(: down (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(: down RuleProc)
 (define (down r1 li-rel)
   (define x (rel-a r1))
   (define y (rel-b r1))
@@ -142,17 +129,8 @@
                         [else #f]))
               li-rel))
 
-(: apply-down (-> (Listof (Rel Term)) (Listof (Rel Term))))
-(define (apply-down rtc)
-  (define acc* (for/fold : (Listof (Rel Term))
-                     ([acc rtc])
-                     ([i (in-list rtc)])
-                 (remove-duplicates (append (down i acc) acc))))
-  (if (equal? acc* rtc) acc*
-      (apply-down acc*)))
 
-
-(: all-to-self (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(: all-to-self RuleProc)
 (define (all-to-self r1 li-rel)
   (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
                       (define a (rel-a r))
@@ -162,18 +140,6 @@
                          (make-rel (rel-a r) (verb-phrase (verb-phrase-action b) (self)))]
                         [else #f]))
               li-rel))
-
-(: apply-all-to-self (-> (Listof (Rel Term)) (Listof (Rel Term))))
-(define (apply-all-to-self rtc)
-  (define acc* (for/fold : (Listof (Rel Term))
-                     ([acc rtc])
-                     ([i (in-list rtc)])
-                 (remove-duplicates (append (all-to-self i acc) acc))))
-  (debug-eprintf "acc* is ~a" acc*)
-  (if (equal? acc* rtc) acc*
-      (apply-all-to-self acc*)))
-
-(define-type RuleProc (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
 
 (: apply-rule (-> (Listof (Rel Term)) RuleProc * (Listof (Rel Term))))
 (define (apply-rule rtc . rule-procs)
@@ -193,15 +159,12 @@
 
 (: derive2 (-> (Listof Term) Root Boolean))
 (define (derive2 premises conclusion)
-  (define rtc (make-rtc premises))
-  (define rtc^ (apply-rule (make-rtc premises) down all-to-self))
+  (define li-rel (apply-rule (map ->rel premises) barbara down all-to-self))
   (define r (->rel conclusion))
   (cond
-    [(member r rtc^ equal?) #t]
+    [(member r li-rel equal?) #t]
     [else
-     (when (debug)
-       (printf "~a~n" rtc^))
-     (print-model (make-counter-model premises rtc^))
+     (print-model (make-counter-model premises li-rel))
      false]))
 
 
@@ -225,7 +188,7 @@
                                    (hash-ref di (rel-a j)))
                                  <=)])
                   (values i ret))))
-  ;; see dogs see cats
+
   (define (lookup [t : Term]) : (Listof Integer)
     (cond
       [(and (noun? t) (hash-ref di t #f)) => (lambda (v) (list v))]
@@ -234,7 +197,7 @@
                                     ([i : (Rel Term) (in-list rtc)])
                                   #:final (equal? (rel-b i) t)
                                   (lookup (rel-a i))))
-                    ret]
+                        ret]
       [else (error 'hi "nothing found")]))
   
   (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
@@ -268,10 +231,17 @@
          [terms (->terms input)])
     (check-equal? (length terms) 3))
 
-  (check-equal? (barbara (make-rel 1 2) (list (make-rel 1 1) (make-rel 2 2) (make-rel 2 3)))
-                (list (make-rel 1 3)))
-  (check-equal? (barbara (make-rel 3 1) (list (make-rel 1 2) (make-rel 1 1) (make-rel 2 2) (make-rel 3 1) (make-rel 3 3) (make-rel 2 2)))
-                (list (make-rel 3 2)))
+  (check-equal? (barbara (make-rel (noun "1") (noun "2"))
+                         (list (make-rel (noun "1") (noun "1")) (make-rel (noun "2") (noun "2")) (make-rel (noun "2") (noun "3"))))
+                (list (make-rel (noun "1") (noun "3"))))
+  (check-equal? (barbara (make-rel (noun "3") (noun "1"))
+                         (list (make-rel (noun "1") (noun "2"))
+                               (make-rel (noun "1") (noun "1"))
+                               (make-rel (noun "2") (noun "2"))
+                               (make-rel (noun "3") (noun "1"))
+                               (make-rel (noun "3") (noun "3"))
+                               (make-rel (noun "2") (noun "2"))))
+                (list (make-rel (noun "3") (noun "2"))))
 
   (let* ([PUPPIES (noun "puppies")]
          [DOGS (noun "dogs")]
@@ -335,4 +305,4 @@
   
   (check-false (derive2 (append
                         (->terms (parse-root '(all dogs (see self)))))
-                       (parse-root '(all dogs (see all dogs))))))
+                        (parse-root '(all dogs (see all dogs))))))
