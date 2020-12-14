@@ -155,6 +155,11 @@
                         [(passive-verb-phrase? b)
                          (make-rel (passive-verb-phrase-agent b)
                                    (verb-phrase (passive-verb-phrase-action b) (rel-a r)))]
+                        #;
+                        [(verb-phrase? b)
+                         (make-rel (verb-phrase-object b)
+                                   (passive-verb-phrase (verb-phrase-action b)
+                                                        (rel-a r)))]
                         [else #f]))
               li-rel))
 
@@ -414,4 +419,6 @@
 
   (printf "start testing self~n")
   (check-true (derive (all dogs (see pass all cats))
-                      (all cats (see all dogs)))))
+                      (all cats (see all dogs))))
+  (check-true (derive (all cats (see all dogs))
+                      (all dogs (see pass all cats)))))
