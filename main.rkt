@@ -61,8 +61,19 @@
                           [object : Term])
   #:type-name VerbPhrase
   #:transparent
-  #:property prop:custom-write (λ ([me : VerbPhrase] [port : Output-Port] _)
+  #:property prop:custom-write (λ ([me : VerbPhrase] [port : Output-Port] [m : (U Boolean 0 1)])
                                  (fprintf port "~a ~a" (verb-phrase-action me) (verb-phrase-object me))))
+
+(define (from-passive [pass-verb : VerbName]) : String
+  (match pass-verb
+    ['see "seen"]))
+
+(struct passive-verb-phrase term ([action : Verb]
+                                  [agent : Term])
+  #:type-name PassiveVerbPhrase
+  #:transparent
+  #:property prop:custom-write (λ ([me : PassiveVerbPhrase] [port : Output-Port] [m : (U Boolean 0 1)])
+                                 (fprintf port "is ~a by ~a" (from-passive (verb-name (passive-verb-phrase-action me))) (passive-verb-phrase-agent me))))
 
 
 (: parse (-> Any Term))
@@ -70,6 +81,7 @@
   (match s
     [`(,v all ,p) #:when (eq? v 'see) (verb-phrase (verb 'see) (parse p))]
     [`(,v self) #:when (eq? v 'see) (verb-phrase (verb 'see) (self))]
+    [`(,v pass all ,p) #:when (eq? v 'see) (passive-verb-phrase (verb 'see) (parse p))]
     [`,n #:when (symbol? n)
          (noun (symbol->string n))]))
 
@@ -84,6 +96,7 @@
     [(noun? t) (list t)]
     [(verb-phrase? t) (append (list t) (->terms (verb-phrase-object t)))]
     [(self? t) (list t)]
+    [(passive-verb-phrase? t) (append (list t) (->terms (passive-verb-phrase-agent t)))]
     [(term? t) (error '->terms "you are drunk")]))
 
 
@@ -94,6 +107,7 @@
     [(root? t) (make-rel (root-p t) (root-q t))]
     [(verb-phrase? t) (make-rel t t)]
     [(self? t) (make-rel t t)]
+    [(passive-verb-phrase? t) (make-rel t t)]
     [else (error 'rc "you are drunk")]))
 
 (: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
@@ -133,6 +147,17 @@
                         [else #f]))
               li-rel))
 
+(: pass RuleProc)
+(define (pass r1 li-rel)
+  (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
+                      (define b (rel-b r))
+                      (cond
+                        [(passive-verb-phrase? b)
+                         (make-rel (passive-verb-phrase-agent b)
+                                   (verb-phrase (passive-verb-phrase-action b) (rel-a r)))]
+                        [else #f]))
+              li-rel))
+
 
 (: all-to-self RuleProc)
 (define (all-to-self r1 li-rel)
@@ -163,7 +188,7 @@
 
 (: derive2 (-> (Listof Term) Root Boolean))
 (define (derive2 premises conclusion)
-  (define li-rel (apply-rule (map ->rel premises) barbara down all-to-self))
+  (define li-rel (apply-rule (map ->rel premises) barbara down all-to-self pass))
   (define r (->rel conclusion))
   (cond
     [(member r li-rel equal?) #t]
@@ -385,4 +410,8 @@
                        (all dogs (see all dogs))))
   (check-false (derive (all puppies dogs)
                        (all dogs (see self))
-                       (all dogs (see all dogs)))))
+                       (all dogs (see all dogs))))
+
+  (printf "start testing self~n")
+  (check-true (derive (all dogs (see pass all cats))
+                      (all cats (see all dogs)))))
