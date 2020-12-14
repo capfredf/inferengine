@@ -9,7 +9,7 @@
   (parameterize ([debug #t])
     expr))
 
-(define-type RuleProc (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(define-type RuleProc (-> (Listof (Rel Term)) (Listof (Rel Term))))
 (define-type RelKind Boolean)
 
 (struct (A) rel ([a : A] [b : A][kind : RelKind]) #:transparent #:type-name Rel)
@@ -115,8 +115,8 @@
   (map ->rel a))
 
 
-(: barbara RuleProc)
-(define (barbara x li-rel)
+(: barbara^ (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(define (barbara^ x li-rel)
   (cond
     [(null? li-rel) null]
     [else 
@@ -131,12 +131,22 @@
        [(null? res) null]
        [(list? res)
         (cons (make-rel (rel-a x) (rel-b (car res)))
-              (barbara x (cdr res)))]
+              (barbara^ x (cdr res)))]
        [else null])]))
 
+(define (comp [proc : (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term)))]) : RuleProc
+  (define (comp^ [rtc^^ : (Listof (Rel Term))]) : (Listof (Rel Term))
+    (for/fold : (Listof (Rel Term))
+        ([rtc^^^ rtc^^])
+        ([i (in-list rtc^^)])
+      (remove-duplicates (append (proc i rtc^^^) rtc^^^))))
+  comp^)
 
-(: down RuleProc)
-(define (down r1 li-rel)
+(define barbara : RuleProc (comp barbara^))
+
+
+(: down^ (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
+(define (down^ r1 li-rel)
   (define x (rel-a r1))
   (define y (rel-b r1))
   (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
@@ -147,33 +157,43 @@
                         [else #f]))
               li-rel))
 
+(define down : RuleProc (comp down^))
+
 (: pass RuleProc)
-(define (pass r1 li-rel)
-  (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
-                      (define b (rel-b r))
-                      (cond
-                        [(passive-verb-phrase? b)
-                         (make-rel (passive-verb-phrase-agent b)
-                                   (verb-phrase (passive-verb-phrase-action b) (rel-a r)))]
-                        #;
-                        [(verb-phrase? b)
-                         (make-rel (verb-phrase-object b)
-                                   (passive-verb-phrase (verb-phrase-action b)
-                                                        (rel-a r)))]
-                        [else #f]))
-              li-rel))
+(define (pass li-rel)
+  (define changed (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
+                                    (define b (rel-b r))
+                                    (cond
+                                      [(passive-verb-phrase? b)
+                                       (make-rel (passive-verb-phrase-agent b)
+                                                 (verb-phrase (passive-verb-phrase-action b) (rel-a r)))]
+                                      
+                                      [(verb-phrase? b)
+                                       (make-rel (verb-phrase-object b)
+                                                 (passive-verb-phrase (verb-phrase-action b)
+                                                                      (rel-a r)))]
+                                      [else #f]))
+                              li-rel))
+  (define ret (remove-duplicates
+               (append
+                changed
+                li-rel)))
+  ret)
 
 
 (: all-to-self RuleProc)
-(define (all-to-self r1 li-rel)
-  (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
-                      (define a (rel-a r))
-                      (define b (rel-b r))
-                      (cond
-                        [(and (verb-phrase? b) (equal? (verb-phrase-object b) a))
-                         (make-rel (rel-a r) (verb-phrase (verb-phrase-action b) (self)))]
-                        [else #f]))
-              li-rel))
+(define (all-to-self li-rel)
+  (remove-duplicates
+   (append
+    (filter-map (lambda ([r : (Rel Term)]) : (Option (Rel Term))
+                        (define a (rel-a r))
+                        (define b (rel-b r))
+                        (cond
+                          [(and (verb-phrase? b) (equal? (verb-phrase-object b) a))
+                           (make-rel (rel-a r) (verb-phrase (verb-phrase-action b) (self)))]
+                          [else #f]))
+                li-rel)
+    li-rel)))
 
 (: apply-rule (-> (Listof (Rel Term)) RuleProc * (Listof (Rel Term))))
 (define (apply-rule rtc . rule-procs)
@@ -182,12 +202,9 @@
       ([rp rule-procs])
     (let loop : (Listof (Rel Term))
          ([rtc^^ rtc^])
-         (define rtc* (for/fold : (Listof (Rel Term))
-                          ([rtc^^^ rtc^^])
-                          ([i (in-list rtc^^)])
-                        (remove-duplicates (append (rp i rtc^^^) rtc^^^))))
-         (debug-eprintf "acc* is ~a~n" rtc*)
-         (if (equal? rtc* rtc^^) rtc*
+         (define rtc* (rp rtc^^))
+         #;(debug-eprintf "acc* is ~a~n-----------~nrtc^ is ~a~n~n" rtc* rtc^^)
+         (if (equal? (list->set rtc*) (list->set rtc^^)) rtc*
              (loop rtc*)))))
                             
 
@@ -337,11 +354,11 @@
          [terms (->terms input)])
     (check-equal? (length terms) 3))
 
-  (check-equal? (barbara (make-rel (noun "1") (noun "2"))
-                         (list (make-rel (noun "1") (noun "1")) (make-rel (noun "2") (noun "2")) (make-rel (noun "2") (noun "3"))))
+  (check-equal? (barbara^ (make-rel (noun "1") (noun "2"))
+                          (list (make-rel (noun "1") (noun "1")) (make-rel (noun "2") (noun "2")) (make-rel (noun "2") (noun "3"))))
                 (list (make-rel (noun "1") (noun "3"))))
-  (check-equal? (barbara (make-rel (noun "3") (noun "1"))
-                         (list (make-rel (noun "1") (noun "2"))
+  (check-equal? (barbara^ (make-rel (noun "3") (noun "1"))
+                          (list (make-rel (noun "1") (noun "2"))
                                (make-rel (noun "1") (noun "1"))
                                (make-rel (noun "2") (noun "2"))
                                (make-rel (noun "3") (noun "1"))
@@ -354,14 +371,14 @@
          [CATS (noun "cats")]
          [SEE-DOGS (verb-phrase (verb 'see) DOGS)]
          [SEE-PUPPIES (verb-phrase (verb 'see) PUPPIES)])
-    (check-equal? (down (make-rel PUPPIES DOGS)
-                        (list (make-rel CATS SEE-DOGS)))
+    (check-equal? (down^ (make-rel PUPPIES DOGS)
+                         (list (make-rel CATS SEE-DOGS)))
                   (list
                    (make-rel CATS SEE-PUPPIES))))
   
-  (check-true (derive (all girls American)
-                      (all students girls)
-                      (all students American)))
+  (debug-ctx (check-true (derive (all girls American)
+                                 (all students girls)
+                                 (all students American))))
 
   (check-true (derive (all girls American)
                        (all students girls)
@@ -373,11 +390,12 @@
                         (all children students)
                         (all girls children)))
   (println "starting test verbs")
-  
-  (check-true
-   (derive (all dogs (see all cats))
-           (all (see all cats) (see all hawks))
-           (all dogs (see all hawks))))
+
+  (debug-ctx
+   (check-true
+    (derive (all dogs (see all cats))
+            (all (see all cats) (see all hawks))
+            (all dogs (see all hawks)))))
 
   (check-true (derive (all puppies dogs)
                       (all cats (see all dogs))
@@ -417,8 +435,9 @@
                        (all dogs (see self))
                        (all dogs (see all dogs))))
 
-  (printf "start testing self~n")
+  (printf "start testing passive~n")
   (check-true (derive (all dogs (see pass all cats))
                       (all cats (see all dogs))))
+  
   (check-true (derive (all cats (see all dogs))
                       (all dogs (see pass all cats)))))
