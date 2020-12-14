@@ -1,5 +1,5 @@
 #lang typed/racket
-(define debug (make-parameter (ann #f Boolean)))
+(define debug (ann (make-parameter #f) (Parameterof Boolean)))
 
 (define (debug-eprintf [fmt : String] . args)
   (when (debug)
@@ -244,7 +244,12 @@
                                      ([j : (Rel Term) (in-list rtc)]
                                       #:when (equal? (rel-b j) i))
                                    (hash-ref di (rel-a j)))
-                                 <=)])
+                                 (lambda ([a : Element] [b : Element]) : Boolean
+                                         (match* (a b)
+                                           [((? integer?) (? integer?)) (<= a b)]
+                                           [((? list?) (? list?)) (and (<= (first a) (first b))
+                                                                       (<= (second a) (second b)))]
+                                           [(_ _) (error 'compare "you are drunk")])))])
                   (values i (normalize-elements ret)))))
 
   (define (lookup [t : Term]) : (Listof Element)
@@ -290,6 +295,12 @@
   (for ([([k : Term][l : (Listof (U Integer (Pairof Integer Integer)))]) (in-hash m)])
     (printf "~a : {~a}~n" k (string-join (map stringify l) ", "))))
 
+
+(define-syntax-rule (derive premise ... conclusion)
+  (derive2 (append (->terms (parse-root (quote premise))) ...)
+           (parse-root (quote conclusion))))
+
+
 (module+ test
   (require typed/rackunit)
   (check-equal? (parse '(see all ducks)) (verb-phrase (verb 'see) (noun "ducks")))
@@ -325,62 +336,54 @@
                   (list
                    (make-rel CATS SEE-PUPPIES))))
   
-  (check-true (derive2 (append (->terms (parse-root '(all girls American)))
-                               (->terms (parse-root '(all students girls))))
-                       (parse-root '(all students American))))
+  (check-true (derive (all girls American)
+                      (all students girls)
+                      (all students American)))
 
-  (check-true (derive2 (append (->terms (parse-root '(all girls American)))
-                               (->terms (parse-root '(all students girls)))
-                               (->terms (parse-root '(all children students))))
-                       (parse-root '(all children American))))
+  (check-true (derive (all girls American)
+                       (all students girls)
+                       (all children students)
+                       (all children American)))
 
-  (check-false (derive2 (append (->terms (parse-root '(all girls American)))
-                                (->terms (parse-root '(all students girls)))
-                                (->terms (parse-root '(all children students))))
-                        (parse-root '(all girls children))))
+  (check-false (derive (all girls American)
+                        (all students girls)
+                        (all children students)
+                        (all girls children)))
   (println "starting test verbs")
   
   (check-true
-   (derive2 (append (->terms (parse-root '(all dogs (see all cats))))
-                               (->terms (parse-root '(all (see all cats) (see all hawks)))))
-                       (parse-root '(all dogs (see all hawks)))))
+   (derive (all dogs (see all cats))
+           (all (see all cats) (see all hawks))
+           (all dogs (see all hawks))))
 
-  (check-true (derive2 (append
-                        (->terms (parse-root '(all puppies dogs)))
-                        (->terms (parse-root '(all cats (see all dogs)))))
-                       (parse-root '(all cats (see all puppies)))))
+  (check-true (derive (all puppies dogs)
+                      (all cats (see all dogs))
+                      (all cats (see all puppies))))
 
-  (check-true (derive2 (append
-                        (->terms (parse-root '(all puppies dogs)))
-                        (->terms (parse-root '(all ducks (see all dogs))))
-                        (->terms (parse-root '(all (see all dogs) birds))))
-                       (parse-root '(all ducks birds))))
+  (check-true (derive (all puppies dogs)
+                      (all ducks (see all dogs))
+                      (all (see all dogs) birds)
+                      (all ducks birds)))
   
-  (check-true (derive2 (append
-                        (->terms (parse-root '(all puppies dogs)))
-                        (->terms (parse-root '(all ducks (see all dogs))))
-                        (->terms (parse-root '(all (see all dogs) birds)))
-                        (->terms (parse-root '(all birds (see all humans)))))
-                       (parse-root '(all (see all dogs) (see all humans)))))
+  (check-true (derive (all puppies dogs)
+                      (all ducks (see all dogs))
+                      (all (see all dogs) birds)
+                      (all birds (see all humans))
+                      (all (see all dogs) (see all humans))))
 
-  (check-false (derive2 (append
-                         (->terms (parse-root '(all puppies dogs)))
-                         (->terms (parse-root '(all ducks (see all dogs)))))
-                        (parse-root '(all (see all dogs) (see all puppie)))))
+  (check-false (derive (all puppies dogs)
+                       (all ducks (see all dogs))
+                       (all (see all dogs) (see all puppie))))
 
   ;; all see all dogs see themselves
   ;; all dogs see themselves
   ;; all see themselves see all hawks
-  (check-true (derive2 (append
-                        (->terms (parse-root '(all dogs (see all dogs)))))
-                       (parse-root '(all dogs (see self)))))
+  (check-true (derive (all dogs (see all dogs))
+                      (all dogs (see self))))
 
+  (check-false (derive (all dogs (see self))
+                       (all dogs (see all dogs))))
   (debug-ctx
-   (check-false (derive2 (append
-                          (->terms (parse-root '(all dogs (see self)))))
-                         (parse-root '(all dogs (see all dogs))))))
-  (debug-ctx
-   (check-false (derive2 (append
-                          (->terms (parse-root '(all puppies dogs)))
-                          (->terms (parse-root '(all dogs (see self)))))
-                         (parse-root '(all dogs (see all dogs)))))))
+   (check-false (derive (all puppies dogs)
+                        (all dogs (see self))
+                        (all dogs (see all dogs))))))
