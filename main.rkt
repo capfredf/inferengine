@@ -440,4 +440,8 @@
                       (all cats (see all dogs))))
   
   (check-true (derive (all cats (see all dogs))
-                      (all dogs (see pass all cats)))))
+                      (all dogs (see pass all cats))))
+
+  (check-false (derive (all huskies (see pass all cats))
+                       (all huskies dogs)
+                       (all dogs (see pass all cats)))))
