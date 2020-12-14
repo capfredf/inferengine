@@ -218,8 +218,9 @@
                                ts))
   (define non-rts (filter (lambda ([x : Term]) : Boolean
                                   (and (not (root? x))
-                                       (not (verb-phrase? x))
-                                       (not (self? x))))
+                                       #;(not (verb-phrase? x))
+                                       #;(not (self? x))
+                                       ))
                           (remove-duplicates ts)))
   (define (make-counter) : (-> Natural)
     (define n : Natural 0)
@@ -239,7 +240,8 @@
       (values j (em counter))))
 
   (define ret (for/hash : Model
-                  ([i : Term (in-list (hash-keys di))])
+                  ([i : Term (in-list (hash-keys di))]
+                   #:when (noun? i))
                 (let ([ret (sort (for/list : (Listof Element)
                                      ([j : (Rel Term) (in-list rtc)]
                                       #:when (equal? (rel-b j) i))
@@ -253,15 +255,7 @@
                   (values i (normalize-elements ret)))))
 
   (define (lookup [t : Term]) : (Listof Element)
-    (cond
-      [(and (noun? t) (hash-ref di t #f)) => (lambda (v) (list v))]
-      [(verb-phrase? t) (define ret (for/fold : (Listof Element)
-                                    ([acc : (Listof Element) '()])
-                                    ([i : (Rel Term) (in-list rtc)])
-                                  #:final (equal? (rel-b i) t)
-                                  (lookup (rel-a i))))
-                        ret]
-      [else (error 'hi "nothing found")]))
+    (list (hash-ref di t)))
 
   (define (pair-self [a : Element]) : (Listof (Pairof Integer Integer))
     (cond
@@ -375,15 +369,21 @@
                        (all ducks (see all dogs))
                        (all (see all dogs) (see all puppie))))
 
+  (printf "huskies~n")
+  (check-false (derive
+               (all huskies dogs)
+               (all huskies (see all cats))
+               (all (see all cats) dogs)))
+
   ;; all see all dogs see themselves
   ;; all dogs see themselves
   ;; all see themselves see all hawks
+  (printf "start testing self~n")
   (check-true (derive (all dogs (see all dogs))
                       (all dogs (see self))))
 
   (check-false (derive (all dogs (see self))
                        (all dogs (see all dogs))))
-  (debug-ctx
-   (check-false (derive (all puppies dogs)
-                        (all dogs (see self))
-                        (all dogs (see all dogs))))))
+  (check-false (derive (all puppies dogs)
+                       (all dogs (see self))
+                       (all dogs (see all dogs)))))
