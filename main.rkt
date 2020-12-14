@@ -235,8 +235,7 @@
                  basic-element-maker))
   (define di
     (for/hash : (HashTable Term Element)
-        ([j : Term (in-list non-rts)]
-         [i : Integer (in-naturals)])
+        ([j : Term (in-list non-rts)])
       (values j (em counter))))
 
   (define ret (for/hash : Model
