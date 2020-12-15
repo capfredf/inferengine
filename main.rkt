@@ -92,13 +92,18 @@
 (: ->terms (-> Term (Listof Term)))
 (define (->terms t)
   (cond
-    [(root? t) (append (list t) (->terms (root-p t)) (->terms (root-q t)))]
+    [(root? t) (append (list t) (->subterms t))]
+    [else (->subterms t)]))
+
+(: ->subterms (-> Term (Listof Term)))
+(define (->subterms t)
+  (cond
+    [(root? t) (append (->terms (root-p t)) (->terms (root-q t)))]
     [(noun? t) (list t)]
     [(verb-phrase? t) (append (list t) (->terms (verb-phrase-object t)))]
     [(self? t) (list t)]
     [(passive-verb-phrase? t) (append (list t) (->terms (passive-verb-phrase-agent t)))]
     [(term? t) (error '->terms "you are drunk")]))
-
 
 (: ->rel (-> Term (rel Term)))
 (define (->rel t)
@@ -217,13 +222,14 @@
 
   (define rules (if contains-self? (list barbara down all-to-self pass)
                     (list barbara down pass)))
-  
-  (define li-rel (apply apply-rule (map ->rel premises) rules))
+
+  (define li-rel (apply apply-rule (map ->rel (append (->subterms conclusion) premises)) rules))
   (define r (->rel conclusion))
+  (debug-eprintf "what is ~a ~n r is ~a ~n" li-rel r)
   (cond
     [(member r li-rel equal?) #t]
     [else
-     (print-model (make-counter-model premises li-rel contains-self?))
+     (print-model (make-counter-model (append (->subterms conclusion) premises) li-rel contains-self?))
      false]))
 
 (define-type Element (U Natural (List Natural Natural)))
@@ -364,11 +370,11 @@
                 (list (make-rel (noun "1") (noun "3"))))
   (check-equal? (barbara^ (make-rel (noun "3") (noun "1"))
                           (list (make-rel (noun "1") (noun "2"))
-                               (make-rel (noun "1") (noun "1"))
-                               (make-rel (noun "2") (noun "2"))
-                               (make-rel (noun "3") (noun "1"))
-                               (make-rel (noun "3") (noun "3"))
-                               (make-rel (noun "2") (noun "2"))))
+                                (make-rel (noun "1") (noun "1"))
+                                (make-rel (noun "2") (noun "2"))
+                                (make-rel (noun "3") (noun "1"))
+                                (make-rel (noun "3") (noun "3"))
+                                (make-rel (noun "2") (noun "2"))))
                 (list (make-rel (noun "3") (noun "2"))))
 
   (let* ([PUPPIES (noun "puppies")]
@@ -381,26 +387,31 @@
                   (list
                    (make-rel CATS SEE-PUPPIES))))
   
-  (debug-ctx (check-true (derive (all girls American)
-                                 (all students girls)
-                                 (all students American))))
+  (check-true (derive (all girls American)
+                      (all students girls)
+                      (all students American)))
 
   (check-true (derive (all girls American)
-                       (all students girls)
-                       (all children students)
-                       (all children American)))
+                      (all students girls)
+                      (all children students)
+                      (all children American)))
 
   (check-false (derive (all girls American)
-                        (all students girls)
-                        (all children students)
-                        (all girls children)))
+                       (all students girls)
+                       (all children students)
+                       (all girls children)))
   (println "starting test verbs")
 
-  (debug-ctx
-   (check-true
-    (derive (all dogs (see all cats))
-            (all (see all cats) (see all hawks))
-            (all dogs (see all hawks)))))
+  (check-true (derive (all skunks mammals)
+                      (all (see all mammals) (see all skunks))))
+
+  (check-true (derive (all skunks mammals)
+                      (all (see all (see all skunks)) (see all (see all mammals)))))
+
+  (check-true
+   (derive (all dogs (see all cats))
+           (all (see all cats) (see all hawks))
+           (all dogs (see all hawks))))
 
   (check-true (derive (all puppies dogs)
                       (all cats (see all dogs))
@@ -423,16 +434,16 @@
 
   (printf "huskies~n")
   (check-false (derive
-               (all huskies dogs)
-               (all huskies (see all cats))
-               (all (see all cats) dogs)))
+                (all huskies dogs)
+                (all huskies (see all cats))
+                (all (see all cats) dogs)))
 
   ;; all see all dogs see themselves
   ;; all dogs see themselves
   ;; all see themselves see all hawks
   (printf "start testing self~n")
-  (debug-ctx (check-true (derive (all dogs (see all dogs))
-                                 (all dogs (see self)))))
+  (check-true (derive (all dogs (see all dogs))
+                      (all dogs (see self))))
 
   (check-false (derive (all dogs (see self))
                        (all dogs (see all dogs))))
@@ -448,12 +459,11 @@
                       (all dogs (see pass all cats))))
 
 
-  (debug-ctx
-   (check-true (derive (all huskies (see pass all cats))
-                       (all huskies dogs)
-                       (all dogs canids)
-                       (all (see pass all cats) (see all canids))
-                       (all (see pass all cats) (see all dogs)))))
+  (check-true (derive (all huskies (see pass all cats))
+                      (all huskies dogs)
+                      (all dogs canids)
+                      (all (see pass all cats) (see all canids))
+                      (all (see pass all cats) (see all dogs))))
 
   
   (check-false (derive (all huskies (see pass all cats))
