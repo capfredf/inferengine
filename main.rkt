@@ -115,10 +115,6 @@
     [(passive-verb-phrase? t) (make-rel t t)]
     [else (error 'rc "you are drunk")]))
 
-(: reflexive-clos (-> (Listof Term) (Listof (Rel Term))))
-(define (reflexive-clos a)
-  (map ->rel a))
-
 
 (: barbara^ (-> (Rel Term) (Listof (Rel Term)) (Listof (Rel Term))))
 (define (barbara^ x li-rel)
