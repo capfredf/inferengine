@@ -81,6 +81,7 @@
   (match s
     [`(,v all ,p) #:when (memv v (list 'see 'love)) (verb-phrase (verb v) (parse p))]
     [`(,v self) #:when (memv v (list 'see 'love)) (verb-phrase (verb v) (self))]
+    [`(,v pass self) #:when (memv v (list 'see 'love)) (passive-verb-phrase (verb v) (self))]
     [`(,v pass all ,p) #:when (memv v (list 'see 'love)) (passive-verb-phrase (verb v) (parse p))]
     [`,n #:when (symbol? n)
          (noun (symbol->string n))]))
@@ -166,13 +167,21 @@
                                     (define b (rel-b r))
                                     (cond
                                       [(passive-verb-phrase? b)
-                                       (make-rel (passive-verb-phrase-agent b)
-                                                 (verb-phrase (passive-verb-phrase-action b) (rel-a r)))]
-                                      
+                                       (define agent (passive-verb-phrase-agent b))
+                                       (if (self? agent)
+                                           (make-rel (rel-a r)
+                                                     (verb-phrase (passive-verb-phrase-action b) agent))
+                                           (make-rel agent
+                                                     (verb-phrase (passive-verb-phrase-action b) (rel-a r))))]
                                       [(verb-phrase? b)
-                                       (make-rel (verb-phrase-object b)
-                                                 (passive-verb-phrase (verb-phrase-action b)
-                                                                      (rel-a r)))]
+                                       (define obj (verb-phrase-object b))
+                                       (if (self? obj)
+                                           (make-rel (rel-a r)
+                                                     (passive-verb-phrase (verb-phrase-action b)
+                                                                          obj))
+                                           (make-rel (verb-phrase-object b)
+                                                     (passive-verb-phrase (verb-phrase-action b)
+                                                                          (rel-a r))))]
                                       [else #f]))
                               li-rel))
   (define ret (remove-duplicates
@@ -216,12 +225,11 @@
                                     (append (->terms conclusion) premises))
                               #t))
 
-  (define rules (if contains-self? (list barbara down all-to-self pass)
+  (define rules (if contains-self? (list barbara down pass all-to-self)
                     (list barbara down pass)))
 
-  (debug-eprintf "after barbara ~a ~n" (apply-rule (map ->rel (append (->subterms conclusion) premises)) barbara))
-
   (define li-rel (apply apply-rule (map ->rel (append (->subterms conclusion) premises)) rules))
+  (debug-eprintf "li-rel ~a ~n" li-rel)
   (define r (->rel conclusion))
   (cond
     [(member r li-rel equal?) #t]
@@ -450,13 +458,14 @@
   (check-true (derive (all dogs (see all dogs))
                       (all dogs (see self))))
 
+  (check-false (derive (all dogs (see self))
+                       (all dogs (see all dogs))))
+
   (check-false (derive (all dogs (see all cats))
                        (all cats (see self))
                        (all (see self) (see all dogs))
                        (all dogs (see self))))
 
-  (check-false (derive (all dogs (see self))
-                       (all dogs (see all dogs))))
   (check-false (derive (all puppies dogs)
                        (all dogs (see self))
                        (all dogs (see all dogs))))
@@ -478,4 +487,12 @@
   
   (check-false (derive (all huskies (see pass all cats))
                        (all huskies dogs)
-                       (all dogs (see pass all cats)))))
+                       (all dogs (see pass all cats))))
+
+  (printf "start testing passive + self~n")
+  (check-true (derive (all cats (see pass self))
+                      (all cats (see self))))
+
+  (check-true (derive (all cats (see self))
+                      (all cats (see pass self))))
+  )
