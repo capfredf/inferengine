@@ -219,9 +219,10 @@
   (define rules (if contains-self? (list barbara down all-to-self pass)
                     (list barbara down pass)))
 
+  (debug-eprintf "after barbara ~a ~n" (apply-rule (map ->rel (append (->subterms conclusion) premises)) barbara))
+
   (define li-rel (apply apply-rule (map ->rel (append (->subterms conclusion) premises)) rules))
   (define r (->rel conclusion))
-  (debug-eprintf "what is ~a ~n r is ~a ~n" li-rel r)
   (cond
     [(member r li-rel equal?) #t]
     [else
@@ -323,7 +324,7 @@
     (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
                                                        ([i : (Rel Term) (in-list rtc)]
                                                         #:when (and (verb-phrase? (rel-b i))
-                                                                    (equal? (verb-phrase-action (rel-b i)) vn)))
+                                                                    (equal? (verb-name (verb-phrase-action (rel-b i))) vn)))
                                                      (for/fold : (Listof (Pair Integer Integer))
                                                          ([acc : (Listof (Pair Integer Integer)) '()])
                                                          ([j (in-list (lookup (rel-a i)))])
@@ -448,6 +449,11 @@
   (printf "start testing self~n")
   (check-true (derive (all dogs (see all dogs))
                       (all dogs (see self))))
+
+  (check-false (derive (all dogs (see all cats))
+                       (all cats (see self))
+                       (all (see self) (see all dogs))
+                       (all dogs (see self))))
 
   (check-false (derive (all dogs (see self))
                        (all dogs (see all dogs))))
