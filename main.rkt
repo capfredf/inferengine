@@ -210,12 +210,20 @@
 
 (: derive2 (-> (Listof Term) Root Boolean))
 (define (derive2 premises conclusion)
-  (define li-rel (apply-rule (map ->rel premises) barbara down all-to-self pass))
+  (define contains-self? (and (memf (lambda ([arg : Term]) : Boolean
+                                           (contains-subterm? arg (self)))
+                                    (append (->terms conclusion) premises))
+                              #t))
+
+  (define rules (if contains-self? (list barbara down all-to-self pass)
+                    (list barbara down pass)))
+  
+  (define li-rel (apply apply-rule (map ->rel premises) rules))
   (define r (->rel conclusion))
   (cond
     [(member r li-rel equal?) #t]
     [else
-     (print-model (make-counter-model premises li-rel))
+     (print-model (make-counter-model premises li-rel contains-self?))
      false]))
 
 (define-type Element (U Natural (List Natural Natural)))
@@ -257,12 +265,9 @@
              (contains-subterm? o t))]
        [else #f])]))
 
-(: make-counter-model (-> (Listof Term) (Listof (Rel Term)) Model))
-(define (make-counter-model ts rtc)
+(: make-counter-model (-> (Listof Term) (Listof (Rel Term)) Boolean Model))
+(define (make-counter-model ts rtc contains-self?)
 
-  (define contains-self? (memf (lambda ([arg : Term]) : Boolean
-                                       (contains-subterm? arg (self)))
-                               ts))
   (define non-rts (filter (lambda ([x : Term]) : Boolean
                                   (and (not (root? x))
                                        #;(not (verb-phrase? x))
@@ -307,7 +312,7 @@
     (cond
       [(list? a) (list (cons (first a) (first a))
                        (cons (second a) (second a)))]
-      [else (error 'pair-self "you are drunk")]))
+      [else (error 'pair-self "you are drunk ~a" a)]))
   
   (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
                                                      ([i : (Rel Term) (in-list rtc)]
@@ -317,7 +322,7 @@
                                                        ([j (in-list (lookup (rel-a i)))])
                                                      (define obj (verb-phrase-object (rel-b i)))
                                                      (cond
-                                                       [(self? obj)
+                                                       [(and contains-self? (self? obj))
                                                         (append (pair-self j) acc)]
                                                        [else
                                                         (for/fold : (Listof (Pair Integer Integer))
@@ -426,8 +431,8 @@
   ;; all dogs see themselves
   ;; all see themselves see all hawks
   (printf "start testing self~n")
-  (check-true (derive (all dogs (see all dogs))
-                      (all dogs (see self))))
+  (debug-ctx (check-true (derive (all dogs (see all dogs))
+                                 (all dogs (see self)))))
 
   (check-false (derive (all dogs (see self))
                        (all dogs (see all dogs))))
@@ -442,6 +447,15 @@
   (check-true (derive (all cats (see all dogs))
                       (all dogs (see pass all cats))))
 
+
+  (debug-ctx
+   (check-true (derive (all huskies (see pass all cats))
+                       (all huskies dogs)
+                       (all dogs canids)
+                       (all (see pass all cats) (see all canids))
+                       (all (see pass all cats) (see all dogs)))))
+
+  
   (check-false (derive (all huskies (see pass all cats))
                        (all huskies dogs)
                        (all dogs (see pass all cats)))))
