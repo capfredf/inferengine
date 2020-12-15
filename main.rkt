@@ -46,7 +46,7 @@
   #:property prop:custom-write (λ ([me : term] [port : Output-Port] _)
                                  (fprintf port "<are ~a>" (be-term-pnoun me))))
 
-(define-type VerbName (U 'see))
+(define-type VerbName (U 'see 'love))
 
 (struct verb term ([name : VerbName])
   #:type-name Verb
@@ -79,9 +79,9 @@
 (: parse (-> Any Term))
 (define (parse s)
   (match s
-    [`(,v all ,p) #:when (eq? v 'see) (verb-phrase (verb 'see) (parse p))]
-    [`(,v self) #:when (eq? v 'see) (verb-phrase (verb 'see) (self))]
-    [`(,v pass all ,p) #:when (eq? v 'see) (passive-verb-phrase (verb 'see) (parse p))]
+    [`(,v all ,p) #:when (memv v (list 'see 'love)) (verb-phrase (verb v) (parse p))]
+    [`(,v self) #:when (memv v (list 'see 'love)) (verb-phrase (verb v) (self))]
+    [`(,v pass all ,p) #:when (memv v (list 'see 'love)) (passive-verb-phrase (verb v) (parse p))]
     [`,n #:when (symbol? n)
          (noun (symbol->string n))]))
 
@@ -292,20 +292,21 @@
         ([j : Term (in-list non-rts)])
       (values j (em counter))))
 
-  (define ret (for/hash : Model
-                  ([i : Term (in-list (hash-keys di))]
-                   #:when (noun? i))
-                (let ([ret (sort (for/list : (Listof Element)
-                                     ([j : (Rel Term) (in-list rtc)]
-                                      #:when (equal? (rel-b j) i))
-                                   (hash-ref di (rel-a j)))
-                                 (lambda ([a : Element] [b : Element]) : Boolean
-                                         (match* (a b)
-                                           [((? integer?) (? integer?)) (<= a b)]
-                                           [((? list?) (? list?)) (and (<= (first a) (first b))
-                                                                       (<= (second a) (second b)))]
-                                           [(_ _) (error 'compare "you are drunk")])))])
-                  (values i (normalize-elements ret)))))
+  (define ret : Model
+    (for/hash : Model
+        ([i : Term (in-list (hash-keys di))]
+         #:when (noun? i))
+      (let ([ret (sort (for/list : (Listof Element)
+                           ([j : (Rel Term) (in-list rtc)]
+                            #:when (equal? (rel-b j) i))
+                         (hash-ref di (rel-a j)))
+                       (lambda ([a : Element] [b : Element]) : Boolean
+                               (match* (a b)
+                                 [((? integer?) (? integer?)) (<= a b)]
+                                 [((? list?) (? list?)) (and (<= (first a) (first b))
+                                                             (<= (second a) (second b)))]
+                                 [(_ _) (error 'compare "you are drunk")])))])
+        (values i (normalize-elements ret)))))
 
   (define (lookup [t : Term]) : (Listof Element)
     (list (hash-ref di t)))
@@ -315,23 +316,27 @@
       [(list? a) (list (cons (first a) (first a))
                        (cons (second a) (second a)))]
       [else (error 'pair-self "you are drunk ~a" a)]))
-  
-  (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
-                                                     ([i : (Rel Term) (in-list rtc)]
-                                                      #:when (verb-phrase? (rel-b i)))
-                                                   (for/fold : (Listof (Pair Integer Integer))
-                                                       ([acc : (Listof (Pair Integer Integer)) '()])
-                                                       ([j (in-list (lookup (rel-a i)))])
-                                                     (define obj (verb-phrase-object (rel-b i)))
-                                                     (cond
-                                                       [(and contains-self? (self? obj))
-                                                        (append (pair-self j) acc)]
-                                                       [else
-                                                        (for/fold : (Listof (Pair Integer Integer))
-                                                            ([acc^ acc])
-                                                            ([k (in-list (lookup obj))])
-                                                          (append (element-product (cons j k)) acc^))]))))))
-  (hash-set ret (verb 'see) action-set))
+
+  (for/fold : Model
+      ([acc : Model ret])
+      ([vn : VerbName (in-list (list 'see 'love))])
+    (define action-set (remove-duplicates (append* (for/list : (Listof (Listof (Pairof Integer Integer)))
+                                                       ([i : (Rel Term) (in-list rtc)]
+                                                        #:when (and (verb-phrase? (rel-b i))
+                                                                    (equal? (verb-phrase-action (rel-b i)) vn)))
+                                                     (for/fold : (Listof (Pair Integer Integer))
+                                                         ([acc : (Listof (Pair Integer Integer)) '()])
+                                                         ([j (in-list (lookup (rel-a i)))])
+                                                       (define obj (verb-phrase-object (rel-b i)))
+                                                       (cond
+                                                         [(and contains-self? (self? obj))
+                                                          (append (pair-self j) acc)]
+                                                         [else
+                                                          (for/fold : (Listof (Pair Integer Integer))
+                                                              ([acc^ acc])
+                                                              ([k (in-list (lookup obj))])
+                                                            (append (element-product (cons j k)) acc^))]))))))
+    (hash-set acc (verb vn) action-set)))
 
 (: print-model (-> Model Void))
 (define (print-model m)
@@ -403,6 +408,9 @@
 
   (check-true (derive (all skunks mammals)
                       (all (see all (see all skunks)) (see all (see all mammals)))))
+
+  (check-true (derive (all skunks mammals)
+                      (all (love all (see all skunks)) (love all (see all mammals)))))
 
   (check-true
    (derive (all dogs (see all cats))
