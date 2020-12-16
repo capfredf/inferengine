@@ -1,4 +1,6 @@
 #lang typed/racket
+(require (for-syntax syntax/parse))
+
 (define debug (ann (make-parameter #f) (Parameterof Boolean)))
 
 (define (debug-eprintf [fmt : String] . args)
@@ -357,9 +359,26 @@
     (printf "~a : {~a}~n" k (string-join (map stringify l) ", "))))
 
 
+#;
 (define-syntax-rule (derive premise ... conclusion)
   (derive2 (append (->terms (parse-root (quote premise))) ...)
            (parse-root (quote conclusion))))
+
+(begin-for-syntax
+  (define (pred v)
+    (define a (syntax->datum v))
+    (cond
+      [(symbol? a) (regexp-match "-+" (symbol->string a))]
+      [else #f]))
+  
+  (define-syntax-class sep
+    (pattern a #:when (pred #'a))))
+
+(define-syntax (derive stx)
+  (syntax-parse stx
+    [(_ premise:expr ... sep:sep conclusion:expr)
+     #'(derive2 (append (->terms (parse-root (quote premise))) ...)
+                (parse-root (quote conclusion)))]))
 
 
 (module+ test
@@ -399,56 +418,68 @@
   
   (check-true (derive (all girls American)
                       (all students girls)
+                      ------------------------
                       (all students American)))
 
   (check-true (derive (all girls American)
                       (all students girls)
                       (all children students)
+                      ------------------------
                       (all children American)))
 
   (check-false (derive (all girls American)
                        (all students girls)
                        (all children students)
+                       ---------------------
                        (all girls children)))
   (println "starting test verbs")
 
   (check-true (derive (all skunks mammals)
+                      ------------------
                       (all (see all mammals) (see all skunks))))
 
   (check-true (derive (all skunks mammals)
+                      --------------------
                       (all (see all (see all skunks)) (see all (see all mammals)))))
 
   (check-true (derive (all skunks mammals)
+                      -----------------------
                       (all (love all (see all skunks)) (love all (see all mammals)))))
 
   (check-true
    (derive (all dogs (see all cats))
            (all (see all cats) (see all hawks))
+           ------------------------------------
            (all dogs (see all hawks))))
 
   (check-true (derive (all puppies dogs)
                       (all cats (see all dogs))
+                      ---------------------------
                       (all cats (see all puppies))))
 
   (check-true (derive (all puppies dogs)
                       (all ducks (see all dogs))
                       (all (see all dogs) birds)
+                      --------------------------
                       (all ducks birds)))
   
   (check-true (derive (all puppies dogs)
                       (all ducks (see all dogs))
                       (all (see all dogs) birds)
                       (all birds (see all humans))
+                      -------------------------
                       (all (see all dogs) (see all humans))))
 
   (check-false (derive (all puppies dogs)
                        (all ducks (see all dogs))
+                       --------------------------------
                        (all (see all dogs) (see all puppie))))
 
   (printf "huskies~n")
   (check-false (derive
                 (all huskies dogs)
                 (all huskies (see all cats))
+                ---------------------------
                 (all (see all cats) dogs)))
 
   ;; all see all dogs see themselves
@@ -456,25 +487,31 @@
   ;; all see themselves see all hawks
   (printf "start testing self~n")
   (check-true (derive (all dogs (see all dogs))
+                      -------------------------
                       (all dogs (see self))))
 
   (check-false (derive (all dogs (see self))
+                       -------------------------
                        (all dogs (see all dogs))))
 
   (check-false (derive (all dogs (see all cats))
                        (all cats (see self))
                        (all (see self) (see all dogs))
+                       -----------------------------
                        (all dogs (see self))))
 
   (check-false (derive (all puppies dogs)
                        (all dogs (see self))
+                       -------------------------
                        (all dogs (see all dogs))))
 
   (printf "start testing passive~n")
   (check-true (derive (all dogs (see pass all cats))
+                      ----------------------------
                       (all cats (see all dogs))))
   
   (check-true (derive (all cats (see all dogs))
+                      -----------------------------
                       (all dogs (see pass all cats))))
 
 
@@ -482,17 +519,21 @@
                       (all huskies dogs)
                       (all dogs canids)
                       (all (see pass all cats) (see all canids))
+                      ------------------------------------------
                       (all (see pass all cats) (see all dogs))))
 
   
   (check-false (derive (all huskies (see pass all cats))
                        (all huskies dogs)
+                       --------------------------------
                        (all dogs (see pass all cats))))
 
   (printf "start testing passive + self~n")
   (check-true (derive (all cats (see pass self))
+                      ---------------------------
                       (all cats (see self))))
 
   (check-true (derive (all cats (see self))
+                      -----------------------------
                       (all cats (see pass self))))
   )
