@@ -236,16 +236,16 @@
   (cond
     [(member r li-rel equal?) #t]
     [else
-     (print-model (make-counter-model (append (->subterms conclusion) premises) li-rel contains-self?))
+     (print-model (make-counter-model (append premises (->subterms conclusion)) li-rel contains-self?))
      false]))
 
 (define-type Element (U Natural (List Natural Natural)))
 
-(define (basic-element-maker [tick! : (-> Natural)]) : Element
-  (tick!))
+(define (basic-element-maker [a : Natural] [b : Natural]) : Element
+  a)
 
-(define (element-maker-for-self [tick! : (-> Natural)]) : Element
-  (list (tick!) (tick!)))
+(define (element-maker-for-self [a : Natural] [b : Natural]) : Element
+  (list a b))
 
 (define (normalize-elements [l : (Listof Element)]) : (Listof Integer)
   (cond
@@ -301,7 +301,15 @@
   (define di
     (for/hash : (HashTable Term Element)
         ([j : Term (in-list non-rts)])
-      (values j (em counter))))
+      (define-values (a b) (if contains-self?
+                               (let ([a (counter)])
+                                 (values a (if (noun? j) (counter)
+                                               a)))
+                               (let ([a (counter)])
+                                 (values a a))))
+      (values j (em a b))))
+  
+  (eprintf "di is ~a ~n" di)
 
   (define ret : Model
     (for/hash : Model
