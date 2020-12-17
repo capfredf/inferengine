@@ -230,8 +230,13 @@
   (define rules (if contains-self? (list barbara down pass all-to-self)
                     (list barbara down pass)))
 
-  (define li-rel (apply apply-rule (map ->rel (append (->subterms conclusion) premises)) rules))
-  (debug-eprintf "li-rel ~a ~n" li-rel)
+  (define li-rel (let loop : (Listof (Rel Term))
+                      ([acc (map ->rel (append (->subterms conclusion) premises))])
+                      (define res (apply apply-rule acc rules))
+                      (debug-eprintf "li-rel ~a ~n ---------------~n ~a ~n ~n" acc res)
+                      (if (equal? (list->set res) (list->set acc))
+                          res
+                          (loop res))))
   (define r (->rel conclusion))
   (cond
     [(member r li-rel equal?) #t]
@@ -388,9 +393,10 @@
      #'(derive2 (append (->terms (parse-root (quote premise))) ...)
                 (parse-root (quote conclusion)))]))
 
-;; (derive (all dogs (see self))
-;;         -------------------------
-;;         (all dogs (see all dogs)))
+(derive (all dogs mammals)
+        (all mammals (see all mammals))
+        -------------------------
+        (all dogs (see self)))
 
 (module+ test
   (require typed/rackunit)
