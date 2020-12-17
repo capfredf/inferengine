@@ -376,10 +376,13 @@
 
 (define-syntax (derive stx)
   (syntax-parse stx
-    [(_ premise:expr ... sep:sep conclusion:expr)
+    [(_ premise:expr ... _:sep conclusion:expr)
      #'(derive2 (append (->terms (parse-root (quote premise))) ...)
                 (parse-root (quote conclusion)))]))
 
+;; (derive (all dogs (see self))
+;;         -------------------------
+;;         (all dogs (see all dogs)))
 
 (module+ test
   (require typed/rackunit)
@@ -535,5 +538,4 @@
 
   (check-true (derive (all cats (see self))
                       -----------------------------
-                      (all cats (see pass self))))
-  )
+                      (all cats (see pass self)))))
